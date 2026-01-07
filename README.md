@@ -16,3 +16,6 @@
 ```
 
 ### Users need to subscribe to this addon if they want to see these extra functions, in case they don't choose to do it, they simply won't see anything of these features.
+
+#### CUSTOM ANIMATION SUPPORT DOCUMENTATION SOON, STILL VERY WIP 
+
