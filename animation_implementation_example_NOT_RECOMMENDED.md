@@ -1,7 +1,9 @@
--- ABSOLUTELY NOT RECOMMENDED TO ADD SUPPORT FOR THIS ANIMATION SYSTEM YET. 
--- It's still extremely WIP and it WILL change in the future with the possibility of breaking your vehicles temporarily
--- Use it at your own risk
 
+# ABSOLUTELY NOT RECOMMENDED TO ADD SUPPORT FOR THIS ANIMATION SYSTEM YET. 
+## It's still extremely WIP and it WILL change in the future with the possibility of breaking your vehicles temporarily
+### Use it at your own risk
+
+```
 
 DEFINE_BASECLASS( "base_glide_car" ) -- strictly necessary if you wanna make support for custom anims (for example speedometers or tachometers)
 
@@ -200,3 +202,4 @@ function ENT:OnUpdateAnimations()
 end
 
 end
+```
