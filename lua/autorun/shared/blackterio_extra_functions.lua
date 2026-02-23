@@ -327,24 +327,58 @@ function BlackterioExtraFunctions:UpdateBattery(vehicle, config)
 end
 
 -- Fuel
+-- Lazy-cached addon presence: checked once on first call, never again.
+local _glideFuelChecked = false
+local _glideFuelEnabled = false
+
 function BlackterioExtraFunctions:UpdateFuel(vehicle, config)
     if not vehicle.fuel then
-        vehicle.fuel = 0
+        vehicle.fuel    = 0
+        vehicle.fuelTarget  = 0
+        vehicle.fuelNextRead = 0
     end
-    
+
+    -- Resolve addon presence once
+    if not _glideFuelChecked then
+        _glideFuelChecked = true
+        _glideFuelEnabled = GlideFuelSystem ~= nil and isfunction(GlideFuelSystem.GetFuel)
+    end
+
     if vehicle:GetEngineState() > 0 then
-        vehicle.fuel = Lerp(config.fuelLerpRate, vehicle.fuel, 1)
+        if _glideFuelEnabled then
+            -- Throttle reads to every 0.25s (matches GlideFuelSystem consumption tick).
+            -- Each frame only does a Lerp; NW2 reads happen at most 4x/second.
+            local now = CurTime()
+            if now >= vehicle.fuelNextRead then
+                vehicle.fuelNextRead = now + 0.25
+
+                -- Read NW2 floats directly, bypassing ResolveVehicle / IsFuelSystemDisabled overhead.
+                local current = vehicle:GetNW2Float("glide_fuel_system_value", -1)
+                if current >= 0 then
+                    local max = vehicle:GetNW2Float("glide_fuel_system_forced_max", -1)
+                    if max <= 0 then max = vehicle:GetNW2Float("glide_fuel_system_max", -1) end
+                    if max <= 0 then max = GlideFuelSystem.DefaultTankSize end
+                    vehicle.fuelTarget = math.Clamp(current / max, 0, 1)
+                else
+                    -- Vehicle not tracked by fuel system yet, treat as full
+                    vehicle.fuelTarget = 1
+                end
+            end
+        else
+            vehicle.fuelTarget = 1
+        end
     else
-        vehicle.fuel = Lerp(config.fuelLerpRate, vehicle.fuel, 0)
+        vehicle.fuelTarget = 0
     end
-    
+
+    vehicle.fuel = Lerp(config.fuelLerpRate, vehicle.fuel, vehicle.fuelTarget)
     vehicle:SetPoseParameter(config.poseParameters.fuel, vehicle.fuel)
 end
+
 
 -- Wipers
 function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
 
--- Check if Stormfox, Stormfox 2 or Gweather is installed
     if not (StormFox or StormFox2 or gWeatherInstalled) then
         vehicle.wipers = 0
         vehicle:SetPoseParameter(config.poseParameters.wipers1, vehicle.wipers)
@@ -353,15 +387,15 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
         vehicle:SetPoseParameter(config.poseParameters.wipers4, vehicle.wipers)
         return
     end
-    
+
     if not vehicle.oldwipers then
-        vehicle.oldwipers = 0
+        vehicle.oldwipers = CurTime() -- FIX: era 0, causaba fase aleatoria en el primer frame
         vehicle.wipers = 0
+        vehicle.wipersActive = false
     end
-    
+
     local shouldWipe = false
-    
-    -- Verify climate conditions
+
     if StormFox then
         shouldWipe = StormFox.IsRaining() and vehicle:GetEngineState() >= 1
     elseif StormFox2 then
@@ -369,17 +403,27 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
     elseif gWeatherInstalled then
         shouldWipe = (gWeather:IsRaining() or gWeather:IsSnowing()) and vehicle:GetEngineState() >= 1
     end
-    
+
     if shouldWipe then
+        vehicle.wipersActive = true
         vehicle.wipers = math.sin((CurTime() - vehicle.oldwipers) / config.wiperSpeed)
     else
-        if vehicle:GetPoseParameter(config.poseParameters.wipers1, config.poseParameters.wipers2) > 0.01 then
-            vehicle.wipers = math.sin((CurTime() - vehicle.oldwipers) / config.wiperSpeed)
+        if vehicle.wipersActive then
+            local sinVal = math.sin((CurTime() - vehicle.oldwipers) / config.wiperSpeed)
+            if sinVal <= 0 then
+                -- Ciclo completado, parar limpiamente en la posición de reposo
+                vehicle.wipersActive = false
+                vehicle.wipers = 0
+                vehicle.oldwipers = CurTime()
+            else
+                vehicle.wipers = sinVal 
+            end
         else
+            vehicle.wipers = 0
             vehicle.oldwipers = CurTime()
         end
     end
-    
+
     vehicle:SetPoseParameter(config.poseParameters.wipers1, vehicle.wipers)
     vehicle:SetPoseParameter(config.poseParameters.wipers2, vehicle.wipers)
     vehicle:SetPoseParameter(config.poseParameters.wipers3, vehicle.wipers)
