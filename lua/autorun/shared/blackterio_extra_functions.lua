@@ -205,13 +205,14 @@ function BlackterioExtraFunctions:UpdatePedals(vehicle, config)
     vehicle.gas = Lerp(config.pedalLerpRate, vehicle.gas, vehicle:GetEngineThrottle())
     
     -- Update brake
-    if vehicle:IsBraking() and vehicle:GetEngineState() <=1 then
+    if vehicle:IsBraking() then
+        if vehicle:GetEngineState() <= 1 then
+            vehicle.brake = Lerp(config.pedalLerpRate, vehicle.brake, 0)
+        else
+            vehicle.brake = Lerp(config.pedalLerpRate, vehicle.brake, vehicle:GetBrakePower())
+        end
+    else
         vehicle.brake = Lerp(config.pedalLerpRate, vehicle.brake, 0)
-    else if vehicle:IsBraking() then
-         vehicle.brake = Lerp(config.pedalLerpRate, vehicle.brake, vehicle:GetBrakePower() / vehicle.GetBrakePower())
-	else 
-        vehicle.brake = Lerp(config.pedalLerpRate, vehicle.brake, 0)
-    end
     end
 
     vehicle:SetPoseParameter(config.poseParameters.gas, vehicle.gas)
@@ -378,8 +379,16 @@ end
 
 -- Wipers
 function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
+    if not self._weatherChecked then
+        self._weatherChecked = true
+        self._hasStormFox = StormFox ~= nil
+        self._hasStormFox2 = StormFox2 ~= nil
+        self._hasGWeather = gWeather ~= nil and gWeather.IsRaining ~= nil
+    end
 
-    if not (StormFox or StormFox2 or gWeatherInstalled) then
+    local weatherAvailable = self._hasStormFox or self._hasStormFox2 or self._hasGWeather
+
+    if not weatherAvailable then
         vehicle.wipers = 0
         vehicle:SetPoseParameter(config.poseParameters.wipers1, vehicle.wipers)
         vehicle:SetPoseParameter(config.poseParameters.wipers2, vehicle.wipers)
@@ -389,18 +398,18 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
     end
 
     if not vehicle.oldwipers then
-        vehicle.oldwipers = CurTime() -- FIX: era 0, causaba fase aleatoria en el primer frame
+        vehicle.oldwipers = CurTime()
         vehicle.wipers = 0
         vehicle.wipersActive = false
     end
 
     local shouldWipe = false
 
-    if StormFox then
+    if self._hasStormFox then
         shouldWipe = StormFox.IsRaining() and vehicle:GetEngineState() >= 1
-    elseif StormFox2 then
+    elseif self._hasStormFox2 then
         shouldWipe = StormFox2.Weather.HasDownfall() and vehicle:GetEngineState() >= 1
-    elseif gWeatherInstalled then
+    elseif self._hasGWeather then
         shouldWipe = (gWeather:IsRaining() or gWeather:IsSnowing()) and vehicle:GetEngineState() >= 1
     end
 
@@ -411,7 +420,6 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
         if vehicle.wipersActive then
             local sinVal = math.sin((CurTime() - vehicle.oldwipers) / config.wiperSpeed)
             if sinVal <= 0 then
-                -- Ciclo completado, parar limpiamente en la posición de reposo
                 vehicle.wipersActive = false
                 vehicle.wipers = 0
                 vehicle.oldwipers = CurTime()
@@ -482,21 +490,15 @@ function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
     local shouldWipe = false
     local targetSwitchPosition = 0
     
-    if StormFox then
+    if self._hasStormFox then
         shouldWipe = StormFox.IsRaining() and vehicle:GetEngineState() >= 1
-    elseif StormFox2 then
+    elseif self._hasStormFox2 then
         shouldWipe = StormFox2.Weather.HasDownfall() and vehicle:GetEngineState() >= 1
-    elseif gWeatherInstalled then
+    elseif self._hasGWeather then
         shouldWipe = (gWeather:IsRaining() or gWeather:IsSnowing()) and vehicle:GetEngineState() >= 1
     end
     
-    local wipersActive = false
-    if vehicle:GetPoseParameter(config.poseParameters.wipers1) ~= 0 or 
-       vehicle:GetPoseParameter(config.poseParameters.wipers2) ~= 0 or
-       vehicle:GetPoseParameter(config.poseParameters.wipers3) ~= 0 or
-       vehicle:GetPoseParameter(config.poseParameters.wipers4) ~= 0 then
-        wipersActive = true
-    end
+    local wipersActive = vehicle.wipers ~= 0 and vehicle.wipersActive
     
     if shouldWipe or wipersActive then
         targetSwitchPosition = 1  
