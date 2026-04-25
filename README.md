@@ -12,10 +12,8 @@
 - Wipers ( Stormfox , Stormfox 2 or GWeather is needed )
 - Wipers and light switches
 - Ignition key
-- Support for 9 doors/animations with customizable keys (VERY WIP, DOCUMENTATION SOON)
+- Support for 9 doors/animations with customizable keys and sounds
 ```
 
 ### Users need to subscribe to this addon if they want to see these extra functions, in case they don't choose to do it, they simply won't see anything of these features.
-
-#### CUSTOM ANIMATION SUPPORT DOCUMENTATION SOON, STILL VERY WIP 
 
