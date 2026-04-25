@@ -1,0 +1,67 @@
+
+# This is used mainly for toggleable animations like doors, trunks, roof latches, etc
+
+
+## Same as the main system, define the baseclass of the vehicle
+```
+
+DEFINE_BASECLASS( "base_glide_car" ) -- strictly necessary if you wanna make support for custom anims (for example speedometers or tachometers)
+
+```
+## Custom config parameters
+### Set them before the 'if CLIENT' section
+```
+-- Custom config for doors animations
+function ENT:GetAnimationConfig()
+    return {
+        count = 2, -- Door Count (9 max)
+        names = { "doorfront", "doorback" }, -- pose parameter names, IN ORDER
+        initialSound = INITIAL_DEFAULT_SOUND, -- default initial sound
+        finishSound  = FINISH_DEFAULT_SOUND, -- default finish sound
+        duration = 0.8, -- Animation duration
+        lerpType = "linear" -- Lerp type: "linear", "smooth", "fast_start", "slow_start"
+        soundFollowsDuration = false -- set this to true if you want the sounds to play exactly when the animation value reach 1 or 0, useful for car doors, trunks, hoods, etc
+    }
+end
+```
+## Advanced custom config parameters
+## Also set them before the 'if CLIENT' section
+### Used to set custom sounds to specific pose parameters
+```
+function ENT:GetAdvancedAnimationConfig()
+    return {
+        { 
+		name = "doorfront", 
+		customInitialSound = "vehicles/door_open.wav" 
+		},
+        { 
+		name = "doorback",  
+		customInitialSound = "vehicles/trunk_open.wav", 
+		customFinishSound = "vehicles/trunk_close.wav" 
+		},
+    }
+end
+```
+
+## Indicate that your vehicle has the animation system set
+### Set this in `function ENT:OnUpdateAnimations()`
+
+```
+    -- Custom animations (doors, panels, etc.)
+    if BlackterioCustomAnims then
+        BlackterioCustomAnims.UpdateAnimations( self )
+    end
+```
+
+# All sounds available on this addon
+
+```
+	"blackterios_glide_vehicles/doors/busopen.wav"
+	"blackterios_glide_vehicles/doors/busclose.wav"
+	"blackterios_glide_vehicles/doors/caropen.wav"
+	"blackterios_glide_vehicles/doors/carclose.wav"
+	"blackterios_glide_vehicles/doors/trunkhoodopen.wav"
+	"blackterios_glide_vehicles/doors/trunkhoodclose.wav"
+	"blackterios_glide_vehicles/doors/airrelease.mp3" // this was the original bus door sound before changing to the improved system
+	
+```
