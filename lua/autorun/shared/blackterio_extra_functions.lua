@@ -4,28 +4,6 @@
 -- ============================================
 
 
-if CLIENT then
-
-    BlackterioExtraFunctions = BlackterioExtraFunctions or {}
- --[[  For debug purposes 
-    print("=============================================================================")
-    print("||[BlackterioExtraFunctions] Extra functions succesfully loaded client-side||")
-    print("=============================================================================") 	
-	]]
-end
-
-if SERVER then
-
-    BlackterioExtraFunctions = BlackterioExtraFunctions or {}
-    
- --[[  For debug purposes 
-    print("=============================================================================")
-    print("||[BlackterioExtraFunctions] Extra functions succesfully loaded server-side||")
-    print("=============================================================================") 
-	]]
-end
-
- 
 BlackterioExtraFunctions = BlackterioExtraFunctions or {}
 
 -- This is the default configuration in case you don't choose to make a custom one for your vehicle
@@ -115,12 +93,26 @@ BlackterioExtraFunctions.DefaultConfig = {
 
 -- Create default font for digital speedometer (CLIENT ONLY)
 if CLIENT then
+    local _createdFonts = { BlackterioDefaultDigitalSpeedo = true }
+
     surface.CreateFont("BlackterioDefaultDigitalSpeedo", {
         font = "Tahoma",
-        size = 20, 
+        size = 20,
         weight = 700,
         antialias = true,
     })
+
+    -- Override DrawDigitalSpeedometer here to close over _createdFonts
+    function BlackterioExtraFunctions:_CreateFontOnce(fontName)
+        if _createdFonts[fontName] then return end
+        _createdFonts[fontName] = true
+        surface.CreateFont(fontName, {
+            font = "Tahoma",
+            size = 20,
+            weight = 700,
+            antialias = true,
+        })
+    end
 end
 
 -- Main function to update anims
@@ -264,7 +256,7 @@ function BlackterioExtraFunctions:UpdateGauges(vehicle, config)
     
     -- Update RPM
     if config.tacho then
-        if vehicle:GetEngineState() then
+        if vehicle:GetEngineState() > 0 then
             vehicle.rpm = Lerp(0.15, vehicle.rpm, vehicle:GetEngineRPM() / vehicle:GetMaxRPM() - config.rpmCalibration)
         else
             vehicle.rpm = Lerp(0.15, vehicle.rpm, 0)
@@ -377,14 +369,18 @@ function BlackterioExtraFunctions:UpdateFuel(vehicle, config)
 end
 
 
+-- Shared weather addon detection (used by UpdateWipers and UpdateWiperSwitch)
+function BlackterioExtraFunctions:_EnsureWeatherChecked()
+    if self._weatherChecked then return end
+    self._weatherChecked = true
+    self._hasStormFox = StormFox ~= nil
+    self._hasStormFox2 = StormFox2 ~= nil
+    self._hasGWeather = gWeather ~= nil and gWeather.IsRaining ~= nil
+end
+
 -- Wipers
 function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
-    if not self._weatherChecked then
-        self._weatherChecked = true
-        self._hasStormFox = StormFox ~= nil
-        self._hasStormFox2 = StormFox2 ~= nil
-        self._hasGWeather = gWeather ~= nil and gWeather.IsRaining ~= nil
-    end
+    self:_EnsureWeatherChecked()
 
     local weatherAvailable = self._hasStormFox or self._hasStormFox2 or self._hasGWeather
 
@@ -483,13 +479,15 @@ end
 
 -- Wiper Switch Animation
 function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
+    self:_EnsureWeatherChecked()
+
     if not vehicle.wiperSwitchAnim then
         vehicle.wiperSwitchAnim = 0
     end
-    
+
     local shouldWipe = false
     local targetSwitchPosition = 0
-    
+
     if self._hasStormFox then
         shouldWipe = StormFox.IsRaining() and vehicle:GetEngineState() >= 1
     elseif self._hasStormFox2 then
@@ -524,14 +522,9 @@ if CLIENT then
         local speed = math.floor(vehicle:GetVelocity():Length() * speedMultiplier)
         local unitText = config.digitalSpeedoUnit == "MPH" and "MPH" or "KM/H"
         
-        -- Create custom font if specified and doesn't exist
-        if config.digitalSpeedoFont ~= "BlackterioDefaultDigitalSpeedo" and not surface.HasFont(config.digitalSpeedoFont) then
-            surface.CreateFont(config.digitalSpeedoFont, {
-                font = "Tahoma",
-                size = 20,
-                weight = 700,
-                antialias = true,
-            })
+        -- Create custom font if specified and not yet created
+        if config.digitalSpeedoFont ~= "BlackterioDefaultDigitalSpeedo" then
+            self:_CreateFontOnce(config.digitalSpeedoFont)
         end
         
         -- Calculate position and angle
