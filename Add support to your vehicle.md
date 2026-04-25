@@ -1,7 +1,6 @@
 ## This next code needs to be written at the start of your vehicle's LUA file (before CLIENT and SERVER):
 ```
 AddCSLuaFile()
-AddCSLuaFile()
 
 -- Load Blackterio's Glide Extra Functions LUA file
 local function LoadExtraFunctions()
