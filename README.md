@@ -9,7 +9,7 @@
 - Fuel gauge - Visual by default, but functional with the Fuel System addon (https://steamcommunity.com/sharedfiles/filedetails/?id=3671783761&searchtext=)
 - Temp gauge (only visual)
 - Oil pressure gauge (works with the engine's RPM)
-- Wipers ( Stormfox , Stormfox 2 or GWeather is needed )
+- Toggleable wipers ( with Stormfox , Stormfox 2 or GWeather optional support )
 - Wipers and light switches
 - Ignition key
 - Support for 9 doors/animations with customizable keys and sounds
