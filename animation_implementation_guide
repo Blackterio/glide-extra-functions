@@ -26,13 +26,16 @@ end
 ```
 ## Advanced custom config parameters
 ## Also set them before the 'if CLIENT' section
-### Used to set custom sounds to specific pose parameters
+### Used to customize specific pose parameters
 ```
 function ENT:GetAdvancedAnimationConfig()
     return {
         { 
 		name = "doorfront", 
 		customInitialSound = "vehicles/door_open.wav" 
+        duration = 0.4, 
+        lerpType = "smooth" 
+        soundFollowsDuration = true 
 		},
         { 
 		name = "doorback",  
@@ -53,7 +56,7 @@ end
     end
 ```
 
-# All sounds available on this addon
+# All door sounds available on this addon
 
 ```
 	"blackterios_glide_vehicles/doors/busopen.wav"
