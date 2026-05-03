@@ -15,5 +15,7 @@
 - Support for 9 doors/animations with customizable keys and sounds
 ```
 
-### Users need to subscribe to this addon if they want to see these extra functions, in case they don't choose to do it, they simply won't see anything of these features.
+### You can see an animation implementation guide for your vehicles in animation_implementation_guide.md
+
+#### Users need to subscribe to this addon if they want to see these extra functions, in case they don't choose to do it, they simply won't see anything of these features.
 
