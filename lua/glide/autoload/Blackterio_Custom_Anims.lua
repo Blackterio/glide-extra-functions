@@ -119,12 +119,15 @@ local function GetVehicleAnimConfig( vehicle )
     end
 
     if advancedRaw then
-        config.soundOverrides = {}
+        config.animOverrides = {}
         for _, entry in ipairs( advancedRaw ) do
             if entry.name then
-                config.soundOverrides[entry.name] = {
-                    customInitialSound = entry.customInitialSound,
-                    customFinishSound  = entry.customFinishSound,
+                config.animOverrides[entry.name] = {
+                    customInitialSound   = entry.customInitialSound,
+                    customFinishSound    = entry.customFinishSound,
+                    duration             = entry.duration,
+                    lerpType             = entry.lerpType,
+                    soundFollowsDuration = entry.soundFollowsDuration,
                 }
             end
         end
@@ -133,17 +136,29 @@ local function GetVehicleAnimConfig( vehicle )
     return config
 end
 
+-- Resolves a per-animation config param, falling back to the global config value.
+local function GetAnimParam( config, animName, param )
+    if animName then
+        local override = config.animOverrides and config.animOverrides[animName]
+        if override and override[param] ~= nil then
+            return override[param]
+        end
+    end
+    return config[param]
+end
+
 -- Lazy-initializes lerp data for a vehicle (CLIENT only)
 local function EnsureLerpData( vehicleID, config )
     if vehicleAnimLerpData[vehicleID] then return end
 
-    local lerpSpeed = 1 / ( config.duration or 2.0 )
     local data = { poseValues = {}, targetValues = {}, lerpSpeeds = {} }
 
     for i = 1, MAX_ANIMATIONS do
+        local animName = config.names[i]
+        local duration = GetAnimParam( config, animName, "duration" ) or 2.0
         data.poseValues[i]   = 0
         data.targetValues[i] = 0
-        data.lerpSpeeds[i]   = lerpSpeed
+        data.lerpSpeeds[i]   = 1 / duration
     end
 
     vehicleAnimLerpData[vehicleID] = data
@@ -182,20 +197,23 @@ local function ToggleAnimation( vehicle, animIndex )
     local newState = not vehicleAnimStates[vehicleID][animIndex]
     vehicleAnimStates[vehicleID][animIndex] = newState
 
+    local animName = config.names[animIndex]
+
     if CLIENT then
         EnsureLerpData( vehicleID, config )
         local data = vehicleAnimLerpData[vehicleID]
         if data then
+            local duration = GetAnimParam( config, animName, "duration" ) or 2.0
             data.targetValues[animIndex] = newState and 1 or 0
-            data.lerpSpeeds[animIndex]   = 1 / ( config.duration or 2.0 )
+            data.lerpSpeeds[animIndex]   = 1 / duration
         end
     end
 
-    local animName = config.names[animIndex]
-    local override = config.soundOverrides and config.soundOverrides[animName]
+    local override           = config.animOverrides and config.animOverrides[animName]
+    local soundFollowsDuration = GetAnimParam( config, animName, "soundFollowsDuration" )
 
     local snd
-    if config.soundFollowsDuration then
+    if soundFollowsDuration then
         if newState then
             snd = ( override and override.customInitialSound ) or config.initialSound
         end
@@ -253,10 +271,11 @@ local function ToggleAllAnimations( vehicle )
         EnsureLerpData( vehicleID, config )
         local data = vehicleAnimLerpData[vehicleID]
         if data then
-            local lerpSpeed = 1 / ( config.duration or 2.0 )
             for i = 1, config.count do
+                local animName = config.names[i]
+                local duration = GetAnimParam( config, animName, "duration" ) or 2.0
                 data.targetValues[i] = shouldOpen and 1 or 0
-                data.lerpSpeeds[i]   = lerpSpeed
+                data.lerpSpeeds[i]   = 1 / duration
             end
         end
     end
@@ -306,8 +325,10 @@ elseif CLIENT then
             EnsureLerpData( vehicleID, config )
             local data = vehicleAnimLerpData[vehicleID]
             if data then
+                local animName = config.names[animIndex]
+                local duration = GetAnimParam( config, animName, "duration" ) or 2.0
                 data.targetValues[animIndex] = newState and 1 or 0
-                data.lerpSpeeds[animIndex]   = 1 / ( config.duration or 2.0 )
+                data.lerpSpeeds[animIndex]   = 1 / duration
             end
         end
     end )
@@ -327,11 +348,12 @@ elseif CLIENT then
             EnsureLerpData( vehicleID, config )
             local data = vehicleAnimLerpData[vehicleID]
             if data then
-                local lerpSpeed = 1 / ( config.duration or 2.0 )
                 for i = 1, count do
+                    local animName = config.names[i]
+                    local duration = GetAnimParam( config, animName, "duration" ) or 2.0
                     vehicleAnimStates[vehicleID][i] = shouldOpen
                     data.targetValues[i] = shouldOpen and 1 or 0
-                    data.lerpSpeeds[i]   = lerpSpeed
+                    data.lerpSpeeds[i]   = 1 / duration
                 end
             end
         end
@@ -367,8 +389,7 @@ function BlackterioCustomAnims.UpdateAnimations( vehicle )
     local data = vehicleAnimLerpData[vehicleID]
     if not data then return end
 
-    local deltaTime        = FrameTime()
-    local lerpType         = config.lerpType or "smooth"
+    local deltaTime         = FrameTime()
     local finishSoundsFired = {}
 
     for i = 1, config.count do
@@ -376,6 +397,7 @@ function BlackterioCustomAnims.UpdateAnimations( vehicle )
         if paramName then
             local currentValue = data.poseValues[i]
             local targetValue  = data.targetValues[i]
+            local lerpType     = GetAnimParam( config, paramName, "lerpType" ) or "smooth"
 
             if math.abs( currentValue - targetValue ) > 0.001 then
                 local lerpAmount = math.min( data.lerpSpeeds[i] * deltaTime, 1 )
@@ -401,8 +423,9 @@ function BlackterioCustomAnims.UpdateAnimations( vehicle )
                 -- Snap to target when close enough, or when closing and within SNAP_THRESHOLD
                 if math.abs( newValue - targetValue ) < 0.001
                     or ( targetValue == 0 and newValue <= SNAP_THRESHOLD ) then
-                    if config.soundFollowsDuration and targetValue == 0 and currentValue > 0.001 then
-                        local override = config.soundOverrides and config.soundOverrides[paramName]
+                    local soundFollowsDuration = GetAnimParam( config, paramName, "soundFollowsDuration" )
+                    if soundFollowsDuration and targetValue == 0 and currentValue > 0.001 then
+                        local override = config.animOverrides and config.animOverrides[paramName]
                         local snd = ( override and override.customFinishSound ) or config.finishSound
                         if snd and snd ~= "" and not finishSoundsFired[snd] then
                             vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )

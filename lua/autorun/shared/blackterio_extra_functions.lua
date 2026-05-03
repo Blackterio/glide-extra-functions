@@ -54,6 +54,11 @@ BlackterioExtraFunctions.DefaultConfig = {
 	
     -- Wipers speed
     wiperSpeed = 0.3,
+
+    -- Wiper sounds (nil/absent falls back to these defaults; "" disables the sound)
+    wiperSwitchSound      = "glide/headlights_on.wav",
+    wiperStartCycleSound  = "blackterios_glide_vehicles/misc/wiperstart.wav",
+    wiperFinishCycleSound = "blackterios_glide_vehicles/misc/wiperfinish.wav",
     
     -- Switch lerp rates
     ignitionLerpRate = 0.2,  
@@ -378,13 +383,40 @@ function BlackterioExtraFunctions:_EnsureWeatherChecked()
     self._hasGWeather = gWeather ~= nil and gWeather.IsRaining ~= nil
 end
 
+-- Resolve a wiper sound: nil (key absent) falls back to DefaultConfig; "" means no sound.
+local function ResolveWiperSound( config, key, defaults )
+    local snd = config[key]
+    if snd == nil then return defaults[key] end
+    if snd == "" then return nil end
+    return snd
+end
+
 -- Wipers
 function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
     self:_EnsureWeatherChecked()
 
+    local useManualMode    = self.IsWiperManualMode and self:IsWiperManualMode() or false
+    local manualOn         = self.GetManualWiperState and self:GetManualWiperState( vehicle:EntIndex() ) or false
     local weatherAvailable = self._hasStormFox or self._hasStormFox2 or self._hasGWeather
+    local soundEnabled     = self.IsWiperSoundEnabled == nil or self:IsWiperSoundEnabled()
 
-    if not weatherAvailable then
+    -- Seed manual-toggle tracking on first call (avoids false trigger on spawn)
+    if vehicle._prevManualWiper == nil then
+        vehicle._prevManualWiper = manualOn
+    end
+
+    -- Switch sound: plays when key toggles AND weather isn't already controlling the wipers
+    if manualOn ~= vehicle._prevManualWiper then
+        vehicle._prevManualWiper = manualOn
+        if soundEnabled and ( useManualMode or not vehicle._prevAutoShouldWipe ) then
+            local snd = ResolveWiperSound( config, "wiperSwitchSound", self.DefaultConfig )
+            if snd then vehicle:EmitSound( snd ) end
+        end
+    end
+
+    -- No source of wiping available: keep wipers off
+    if not manualOn and not useManualMode and not weatherAvailable and not vehicle.wipersActive then
+        vehicle._lastWiperQuarter = nil
         vehicle.wipers = 0
         vehicle:SetPoseParameter(config.poseParameters.wipers1, vehicle.wipers)
         vehicle:SetPoseParameter(config.poseParameters.wipers2, vehicle.wipers)
@@ -400,13 +432,31 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
     end
 
     local shouldWipe = false
+    local engineOn   = vehicle:GetEngineState() >= 1
 
-    if self._hasStormFox then
-        shouldWipe = StormFox.IsRaining() and vehicle:GetEngineState() >= 1
-    elseif self._hasStormFox2 then
-        shouldWipe = StormFox2.Weather.HasDownfall() and vehicle:GetEngineState() >= 1
-    elseif self._hasGWeather then
-        shouldWipe = (gWeather:IsRaining() or gWeather:IsSnowing()) and vehicle:GetEngineState() >= 1
+    if manualOn then
+        shouldWipe = engineOn
+    elseif not useManualMode then
+        if self._hasStormFox then
+            shouldWipe = StormFox.IsRaining() and engineOn
+        elseif self._hasStormFox2 then
+            shouldWipe = StormFox2.Weather.HasDownfall() and engineOn
+        elseif self._hasGWeather then
+            shouldWipe = ( gWeather:IsRaining() or gWeather:IsSnowing() ) and engineOn
+        end
+    end
+
+    -- Switch sound para modo auto: weather activa/desactiva los wipers
+    if not manualOn then
+        if vehicle._prevAutoShouldWipe == nil then
+            vehicle._prevAutoShouldWipe = shouldWipe
+        elseif shouldWipe ~= vehicle._prevAutoShouldWipe then
+            vehicle._prevAutoShouldWipe = shouldWipe
+            if soundEnabled then
+                local snd = ResolveWiperSound( config, "wiperSwitchSound", self.DefaultConfig )
+                if snd then vehicle:EmitSound( snd ) end
+            end
+        end
     end
 
     if shouldWipe then
@@ -420,12 +470,50 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
                 vehicle.wipers = 0
                 vehicle.oldwipers = CurTime()
             else
-                vehicle.wipers = sinVal 
+                vehicle.wipers = sinVal
             end
         else
             vehicle.wipers = 0
             vehicle.oldwipers = CurTime()
         end
+    end
+
+    -- Cycle sounds: value-based detection on the actual pose parameter
+    if vehicle.wipersActive then
+        local cur     = vehicle.wipers
+        local prev    = vehicle._prevWipersSound          -- nil en el primer frame activo
+        local curAbs  = math.abs( cur )
+        local prevAbs = prev and math.abs( prev ) or 0
+
+        if CLIENT then
+            -- Start: primera activación, o wiper cruza cero ascendiendo (inicio de barrido)
+            if prev == nil or ( prev < 0 and cur > 0 ) then
+                if soundEnabled then
+                    local snd = ResolveWiperSound( config, "wiperStartCycleSound", self.DefaultConfig )
+                    if snd then vehicle:EmitSound( snd ) end
+                end
+                -- print("START")
+            end
+
+            -- Peak: marcar al entrar en zona de máximo recorrido (solo en semiciclo positivo)
+            if cur > 0 and curAbs >= 0.95 and prevAbs < 0.95 then
+                vehicle._wiperAbovePeak = true
+            end
+            -- Finish: el wiper pasó el pico y ya está bajando
+            if vehicle._wiperAbovePeak and prev ~= nil and curAbs < prevAbs then
+                vehicle._wiperAbovePeak = false
+                if soundEnabled then
+                    local snd = ResolveWiperSound( config, "wiperFinishCycleSound", self.DefaultConfig )
+                    if snd then vehicle:EmitSound( snd ) end
+                end
+                -- print("PEAK")
+            end
+        end
+
+        vehicle._prevWipersSound = cur
+    else
+        vehicle._prevWipersSound = nil
+        vehicle._wiperAbovePeak  = false
     end
 
     vehicle:SetPoseParameter(config.poseParameters.wipers1, vehicle.wipers)
@@ -485,25 +573,26 @@ function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
         vehicle.wiperSwitchAnim = 0
     end
 
-    local shouldWipe = false
-    local targetSwitchPosition = 0
+    local useManualMode = self.IsWiperManualMode and self:IsWiperManualMode() or false
+    local manualOn      = self.GetManualWiperState and self:GetManualWiperState( vehicle:EntIndex() ) or false
+    local engineOn      = vehicle:GetEngineState() >= 1
+    local shouldWipe    = false
 
-    if self._hasStormFox then
-        shouldWipe = StormFox.IsRaining() and vehicle:GetEngineState() >= 1
-    elseif self._hasStormFox2 then
-        shouldWipe = StormFox2.Weather.HasDownfall() and vehicle:GetEngineState() >= 1
-    elseif self._hasGWeather then
-        shouldWipe = (gWeather:IsRaining() or gWeather:IsSnowing()) and vehicle:GetEngineState() >= 1
+    if manualOn then
+        shouldWipe = engineOn
+    elseif not useManualMode then
+        if self._hasStormFox then
+            shouldWipe = StormFox.IsRaining() and engineOn
+        elseif self._hasStormFox2 then
+            shouldWipe = StormFox2.Weather.HasDownfall() and engineOn
+        elseif self._hasGWeather then
+            shouldWipe = ( gWeather:IsRaining() or gWeather:IsSnowing() ) and engineOn
+        end
     end
-    
+
     local wipersActive = vehicle.wipers ~= 0 and vehicle.wipersActive
-    
-    if shouldWipe or wipersActive then
-        targetSwitchPosition = 1  
-    else
-        targetSwitchPosition = 0  
-    end
-    
+
+    local targetSwitchPosition = ( shouldWipe or wipersActive ) and 1 or 0
     vehicle.wiperSwitchAnim = Lerp(config.wiperSwitchLerpRate, vehicle.wiperSwitchAnim, targetSwitchPosition)
     vehicle:SetPoseParameter(config.poseParameters.wiperSwitch, vehicle.wiperSwitchAnim)
 end
