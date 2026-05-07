@@ -42,6 +42,12 @@ function ENT:GetAdvancedAnimationConfig()
 		customInitialSound = "vehicles/trunk_open.wav", 
 		customFinishSound = "vehicles/trunk_close.wav" 
 		},
+        { 
+		name = "backwiper",  
+		customInitialSound = "vehicles/wiperstart.wav", 
+		customFinishSound = "vehicles/wiperfinish.wav", 
+		isDoor = false // animation won't play when "play all animations" key is pressed (numpad 0 by default)
+		},
     }
 end
 ```
