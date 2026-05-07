@@ -25,7 +25,7 @@ if CLIENT then
         config.CreateHeader( panel, "Extra Functions" )
 
         local cvarMode = GetConVar( "blackterio_wipers_mode" )
-        config.CreateToggle( panel, "Manual Mode Only", cvarMode:GetBool(), function( value )
+        config.CreateToggle( panel, "Detect Weather", cvarMode:GetBool(), function( value )
             RunConsoleCommand( "blackterio_wipers_mode", value and "1" or "0" )
         end )
 

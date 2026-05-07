@@ -128,6 +128,7 @@ local function GetVehicleAnimConfig( vehicle )
                     duration             = entry.duration,
                     lerpType             = entry.lerpType,
                     soundFollowsDuration = entry.soundFollowsDuration,
+                    isDoor               = entry.isDoor,
                 }
             end
         end
@@ -254,17 +255,23 @@ local function ToggleAllAnimations( vehicle )
 
     EnsureAnimStates( vehicleID )
 
-    -- Open all if any is closed; close all if all are open
+    -- Open all if any is closed; close all if all are open.
+    -- Animations with isDoor == false are excluded from this toggle.
     local shouldOpen = false
     for i = 1, config.count do
-        if not vehicleAnimStates[vehicleID][i] then
+        local animName = config.names[i]
+        if GetAnimParam( config, animName, "isDoor" ) ~= false
+            and not vehicleAnimStates[vehicleID][i] then
             shouldOpen = true
             break
         end
     end
 
     for i = 1, config.count do
-        vehicleAnimStates[vehicleID][i] = shouldOpen
+        local animName = config.names[i]
+        if GetAnimParam( config, animName, "isDoor" ) ~= false then
+            vehicleAnimStates[vehicleID][i] = shouldOpen
+        end
     end
 
     if CLIENT then
@@ -273,9 +280,11 @@ local function ToggleAllAnimations( vehicle )
         if data then
             for i = 1, config.count do
                 local animName = config.names[i]
-                local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-                data.targetValues[i] = shouldOpen and 1 or 0
-                data.lerpSpeeds[i]   = 1 / duration
+                if GetAnimParam( config, animName, "isDoor" ) ~= false then
+                    local duration = GetAnimParam( config, animName, "duration" ) or 2.0
+                    data.targetValues[i] = shouldOpen and 1 or 0
+                    data.lerpSpeeds[i]   = 1 / duration
+                end
             end
         end
     end
@@ -350,10 +359,12 @@ elseif CLIENT then
             if data then
                 for i = 1, count do
                     local animName = config.names[i]
-                    local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-                    vehicleAnimStates[vehicleID][i] = shouldOpen
-                    data.targetValues[i] = shouldOpen and 1 or 0
-                    data.lerpSpeeds[i]   = 1 / duration
+                    if GetAnimParam( config, animName, "isDoor" ) ~= false then
+                        local duration = GetAnimParam( config, animName, "duration" ) or 2.0
+                        vehicleAnimStates[vehicleID][i] = shouldOpen
+                        data.targetValues[i] = shouldOpen and 1 or 0
+                        data.lerpSpeeds[i]   = 1 / duration
+                    end
                 end
             end
         end
