@@ -6,6 +6,12 @@ Glide.Print( "%s - By Blackterio", "Custom Animations Control" )
     Custom Animations Control System
     Control up to 9 animations
     with customizable keys
+
+    State is stored in a NW2Int bitmask on the vehicle
+    ("blackterio_anims", bit N-1 = animation N open).
+    The server is authoritative; clients (including late
+    joiners and players re-entering the PVS) read the
+    bitmask every frame and animate towards it.
 ------------------------------------------]]
 
 -- Public namespace
@@ -15,16 +21,16 @@ BlackterioCustomAnims = BlackterioCustomAnims or {}
 
 	local INITIAL_DEFAULT_SOUND = "blackterios_glide_vehicles/doors/busopen.wav"
 	local FINISH_DEFAULT_SOUND  = "blackterios_glide_vehicles/doors/busclose.wav"
-	
+
 	--[[
 	Other available sounds in this addon:
-	
+
 	"blackterios_glide_vehicles/doors/caropen.wav"
 	"blackterios_glide_vehicles/doors/carclose.wav"
 	"blackterios_glide_vehicles/doors/trunkhoodopen.wav"
 	"blackterios_glide_vehicles/doors/trunkhoodclose.wav"
 	"blackterios_glide_vehicles/doors/airrelease.mp3" // this was the original bus door sound before changing to the improved system
-	
+
 	--]]
 
 
@@ -32,35 +38,38 @@ BlackterioCustomAnims = BlackterioCustomAnims or {}
 local ANIM_COOLDOWN  = 0.5
 local MAX_ANIMATIONS = 9
 
--- When closing (target = 0), snap to 0 once the value drops to or below this threshold.
-local SNAP_THRESHOLD = 0.05
+-- Networked bitmask holding the open/closed state of all animations
+local NW_ANIMS = "blackterio_anims"
 
--- Boolean open/closed state per vehicle
-local vehicleAnimStates = {}
-
--- Lerp state per vehicle (CLIENT only)
--- vehicleAnimLerpData[vehicleID] = { poseValues={}, targetValues={}, lerpSpeeds={} }
-local vehicleAnimLerpData = {}
-
--- Last toggle time per vehicle per animation index (0 = "all" slot)
-local vehicleAnimCooldownTimers = {}
+local bit_band, bit_bxor, bit_lshift = bit.band, bit.bxor, bit.lshift
 
 --[[----------------------------------------
     Input group setup
 ------------------------------------------]]
 
-Glide.SetupInputGroup( "door_animations" )
+-- Guarded registration: safe on autorefresh (no group reset, no
+-- "Input action already exists" spam) and independent of which
+-- Blackterio autoload file happens to run first.
+if not Glide.InputGroups["door_animations"] then
+    Glide.SetupInputGroup( "door_animations" )
+end
 
-Glide.AddInputAction( "door_animations", "animation_1", KEY_PAD_1 )
-Glide.AddInputAction( "door_animations", "animation_2", KEY_PAD_2 )
-Glide.AddInputAction( "door_animations", "animation_3", KEY_PAD_3 )
-Glide.AddInputAction( "door_animations", "animation_4", KEY_PAD_4 )
-Glide.AddInputAction( "door_animations", "animation_5", KEY_PAD_5 )
-Glide.AddInputAction( "door_animations", "animation_6", KEY_PAD_6 )
-Glide.AddInputAction( "door_animations", "animation_7", KEY_PAD_7 )
-Glide.AddInputAction( "door_animations", "animation_8", KEY_PAD_8 )
-Glide.AddInputAction( "door_animations", "animation_9", KEY_PAD_9 )
-Glide.AddInputAction( "door_animations", "animation_all", KEY_PAD_0 )
+local function AddActionOnce( action, defaultButton )
+    if Glide.InputGroups["door_animations"][action] == nil then
+        Glide.AddInputAction( "door_animations", action, defaultButton )
+    end
+end
+
+AddActionOnce( "animation_1", KEY_PAD_1 )
+AddActionOnce( "animation_2", KEY_PAD_2 )
+AddActionOnce( "animation_3", KEY_PAD_3 )
+AddActionOnce( "animation_4", KEY_PAD_4 )
+AddActionOnce( "animation_5", KEY_PAD_5 )
+AddActionOnce( "animation_6", KEY_PAD_6 )
+AddActionOnce( "animation_7", KEY_PAD_7 )
+AddActionOnce( "animation_8", KEY_PAD_8 )
+AddActionOnce( "animation_9", KEY_PAD_9 )
+AddActionOnce( "animation_all", KEY_PAD_0 )
 
 if CLIENT then
     language.Add( "glide.input.door_animations", "Blackterio's Custom Animations - Controls" )
@@ -137,6 +146,27 @@ local function GetVehicleAnimConfig( vehicle )
     return config
 end
 
+-- Config is built once per entity (per realm) and cached on it.
+-- Call BlackterioCustomAnims.InvalidateConfig( vehicle ) if the
+-- vehicle's animation config changes at runtime.
+local function GetCachedConfig( vehicle )
+    local config = vehicle._bcaConfig
+
+    if config == nil then
+        config = GetVehicleAnimConfig( vehicle ) or false
+        vehicle._bcaConfig = config
+    end
+
+    if config == false then return nil end
+    return config
+end
+
+function BlackterioCustomAnims.InvalidateConfig( vehicle )
+    if not IsValid( vehicle ) then return end
+    vehicle._bcaConfig = nil
+    vehicle._bcaLerp = nil
+end
+
 -- Resolves a per-animation config param, falling back to the global config value.
 local function GetAnimParam( config, animName, param )
     if animName then
@@ -148,69 +178,37 @@ local function GetAnimParam( config, animName, param )
     return config[param]
 end
 
--- Lazy-initializes lerp data for a vehicle (CLIENT only)
-local function EnsureLerpData( vehicleID, config )
-    if vehicleAnimLerpData[vehicleID] then return end
-
-    local data = { poseValues = {}, targetValues = {}, lerpSpeeds = {} }
-
-    for i = 1, MAX_ANIMATIONS do
-        local animName = config.names[i]
-        local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-        data.poseValues[i]   = 0
-        data.targetValues[i] = 0
-        data.lerpSpeeds[i]   = 1 / duration
-    end
-
-    vehicleAnimLerpData[vehicleID] = data
-end
-
--- Ensures vehicleAnimStates[vehicleID] exists
-local function EnsureAnimStates( vehicleID )
-    if vehicleAnimStates[vehicleID] then return end
-    vehicleAnimStates[vehicleID] = {}
-    for i = 1, MAX_ANIMATIONS do
-        vehicleAnimStates[vehicleID][i] = false
-    end
-end
-
 --[[----------------------------------------
-    Toggle logic
+    Toggle logic (SERVER only — Glide calls
+    ENT:OnSeatInput on the server realm)
 ------------------------------------------]]
 
 local function ToggleAnimation( vehicle, animIndex )
+    if not SERVER then return end
     if not IsValid( vehicle ) then return end
 
-    local config = GetVehicleAnimConfig( vehicle )
+    local config = GetCachedConfig( vehicle )
     if not config or animIndex > config.count then return end
 
-    local vehicleID = vehicle:EntIndex()
-
-    -- Global cooldown gate: blocks animation, sound, and network sync together
+    -- Global cooldown gate: blocks animation and sound together
     local now = CurTime()
-    if not vehicleAnimCooldownTimers[vehicleID] then vehicleAnimCooldownTimers[vehicleID] = {} end
-    local lastTime = vehicleAnimCooldownTimers[vehicleID][animIndex] or 0
-    if ( now - lastTime ) < ANIM_COOLDOWN then return end
-    vehicleAnimCooldownTimers[vehicleID][animIndex] = now
-
-    EnsureAnimStates( vehicleID )
-
-    local newState = not vehicleAnimStates[vehicleID][animIndex]
-    vehicleAnimStates[vehicleID][animIndex] = newState
-
-    local animName = config.names[animIndex]
-
-    if CLIENT then
-        EnsureLerpData( vehicleID, config )
-        local data = vehicleAnimLerpData[vehicleID]
-        if data then
-            local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-            data.targetValues[animIndex] = newState and 1 or 0
-            data.lerpSpeeds[animIndex]   = 1 / duration
-        end
+    local cooldowns = vehicle._bcaCooldown
+    if not cooldowns then
+        cooldowns = {}
+        vehicle._bcaCooldown = cooldowns
     end
+    if ( now - ( cooldowns[animIndex] or 0 ) ) < ANIM_COOLDOWN then return end
+    cooldowns[animIndex] = now
 
-    local override           = config.animOverrides and config.animOverrides[animName]
+    local bits = vehicle:GetNW2Int( NW_ANIMS, 0 )
+    local mask = bit_lshift( 1, animIndex - 1 )
+    local newState = bit_band( bits, mask ) == 0
+
+    -- Flip the bit; clients pick this up in UpdateAnimations
+    vehicle:SetNW2Int( NW_ANIMS, bit_bxor( bits, mask ) )
+
+    local animName             = config.names[animIndex]
+    local override             = config.animOverrides and config.animOverrides[animName]
     local soundFollowsDuration = GetAnimParam( config, animName, "soundFollowsDuration" )
 
     local snd
@@ -228,32 +226,26 @@ local function ToggleAnimation( vehicle, animIndex )
     if snd and snd ~= "" then
         vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )
     end
-
-    if SERVER then
-        net.Start( "BlackterioCustomAnimSync" )
-        net.WriteEntity( vehicle )
-        net.WriteUInt( animIndex, 4 )
-        net.WriteBool( newState )
-        net.Broadcast()
-    end
 end
 
 local function ToggleAllAnimations( vehicle )
+    if not SERVER then return end
     if not IsValid( vehicle ) then return end
 
-    local config = GetVehicleAnimConfig( vehicle )
+    local config = GetCachedConfig( vehicle )
     if not config then return end
-
-    local vehicleID = vehicle:EntIndex()
 
     -- Global cooldown gate (slot 0 = "all" toggle)
     local now = CurTime()
-    if not vehicleAnimCooldownTimers[vehicleID] then vehicleAnimCooldownTimers[vehicleID] = {} end
-    local lastTime = vehicleAnimCooldownTimers[vehicleID][0] or 0
-    if ( now - lastTime ) < ANIM_COOLDOWN then return end
-    vehicleAnimCooldownTimers[vehicleID][0] = now
+    local cooldowns = vehicle._bcaCooldown
+    if not cooldowns then
+        cooldowns = {}
+        vehicle._bcaCooldown = cooldowns
+    end
+    if ( now - ( cooldowns[0] or 0 ) ) < ANIM_COOLDOWN then return end
+    cooldowns[0] = now
 
-    EnsureAnimStates( vehicleID )
+    local bits = vehicle:GetNW2Int( NW_ANIMS, 0 )
 
     -- Open all if any is closed; close all if all are open.
     -- Animations with isDoor == false are excluded from this toggle.
@@ -261,7 +253,7 @@ local function ToggleAllAnimations( vehicle )
     for i = 1, config.count do
         local animName = config.names[i]
         if GetAnimParam( config, animName, "isDoor" ) ~= false
-            and not vehicleAnimStates[vehicleID][i] then
+            and bit_band( bits, bit_lshift( 1, i - 1 ) ) == 0 then
             shouldOpen = true
             break
         end
@@ -270,24 +262,16 @@ local function ToggleAllAnimations( vehicle )
     for i = 1, config.count do
         local animName = config.names[i]
         if GetAnimParam( config, animName, "isDoor" ) ~= false then
-            vehicleAnimStates[vehicleID][i] = shouldOpen
-        end
-    end
-
-    if CLIENT then
-        EnsureLerpData( vehicleID, config )
-        local data = vehicleAnimLerpData[vehicleID]
-        if data then
-            for i = 1, config.count do
-                local animName = config.names[i]
-                if GetAnimParam( config, animName, "isDoor" ) ~= false then
-                    local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-                    data.targetValues[i] = shouldOpen and 1 or 0
-                    data.lerpSpeeds[i]   = 1 / duration
-                end
+            local mask = bit_lshift( 1, i - 1 )
+            if shouldOpen then
+                bits = bit.bor( bits, mask )
+            elseif bit_band( bits, mask ) ~= 0 then
+                bits = bit_bxor( bits, mask )
             end
         end
     end
+
+    vehicle:SetNW2Int( NW_ANIMS, bits )
 
     local snd
     if config.soundFollowsDuration then
@@ -298,109 +282,67 @@ local function ToggleAllAnimations( vehicle )
     if snd and snd ~= "" then
         vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )
     end
-
-    if SERVER then
-        net.Start( "BlackterioCustomAnimSyncAll" )
-        net.WriteEntity( vehicle )
-        net.WriteBool( shouldOpen )
-        net.WriteUInt( config.count, 4 )
-        net.Broadcast()
-    end
 end
-
---[[----------------------------------------
-    Network synchronization
-------------------------------------------]]
-
-if SERVER then
-    util.AddNetworkString( "BlackterioCustomAnimSync" )
-    util.AddNetworkString( "BlackterioCustomAnimSyncAll" )
-
-elseif CLIENT then
-
-    net.Receive( "BlackterioCustomAnimSync", function()
-        local vehicle   = net.ReadEntity()
-        local animIndex = net.ReadUInt( 4 )
-        local newState  = net.ReadBool()
-
-        if not IsValid( vehicle ) then return end
-
-        local vehicleID = vehicle:EntIndex()
-        EnsureAnimStates( vehicleID )
-        vehicleAnimStates[vehicleID][animIndex] = newState
-
-        local config = GetVehicleAnimConfig( vehicle )
-        if config then
-            EnsureLerpData( vehicleID, config )
-            local data = vehicleAnimLerpData[vehicleID]
-            if data then
-                local animName = config.names[animIndex]
-                local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-                data.targetValues[animIndex] = newState and 1 or 0
-                data.lerpSpeeds[animIndex]   = 1 / duration
-            end
-        end
-    end )
-
-    net.Receive( "BlackterioCustomAnimSyncAll", function()
-        local vehicle    = net.ReadEntity()
-        local shouldOpen = net.ReadBool()
-        local count      = net.ReadUInt( 4 )
-
-        if not IsValid( vehicle ) then return end
-
-        local vehicleID = vehicle:EntIndex()
-        EnsureAnimStates( vehicleID )
-
-        local config = GetVehicleAnimConfig( vehicle )
-        if config then
-            EnsureLerpData( vehicleID, config )
-            local data = vehicleAnimLerpData[vehicleID]
-            if data then
-                for i = 1, count do
-                    local animName = config.names[i]
-                    if GetAnimParam( config, animName, "isDoor" ) ~= false then
-                        local duration = GetAnimParam( config, animName, "duration" ) or 2.0
-                        vehicleAnimStates[vehicleID][i] = shouldOpen
-                        data.targetValues[i] = shouldOpen and 1 or 0
-                        data.lerpSpeeds[i]   = 1 / duration
-                    end
-                end
-            end
-        end
-    end )
-
-end
-
---[[----------------------------------------
-    State cleanup on vehicle removal
-------------------------------------------]]
-
-hook.Add( "EntityRemoved", "BlackterioCustomAnimCleanup", function( ent )
-    if IsValid( ent ) and ent.IsGlideVehicle then
-        local id = ent:EntIndex()
-        vehicleAnimStates[id]          = nil
-        vehicleAnimLerpData[id]        = nil
-        vehicleAnimCooldownTimers[id]  = nil
-    end
-end )
 
 --[[----------------------------------------
     Public API
 ------------------------------------------]]
 
+-- Returns whether an animation is currently open (works on both realms).
+function BlackterioCustomAnims.GetAnimationState( vehicle, animIndex )
+    if not IsValid( vehicle ) then return false end
+    return bit_band( vehicle:GetNW2Int( NW_ANIMS, 0 ), bit_lshift( 1, animIndex - 1 ) ) ~= 0
+end
+
 function BlackterioCustomAnims.UpdateAnimations( vehicle )
     if not IsValid( vehicle ) then return end
 
-    local vehicleID = vehicle:EntIndex()
-    local config    = GetVehicleAnimConfig( vehicle )
+    local config = GetCachedConfig( vehicle )
     if not config then return end
 
-    EnsureLerpData( vehicleID, config )
-    local data = vehicleAnimLerpData[vehicleID]
-    if not data then return end
+    local bits = vehicle:GetNW2Int( NW_ANIMS, 0 )
+    local data = vehicle._bcaLerp
 
-    local deltaTime         = FrameTime()
+    if not data then
+        -- First frame for this entity on this client: snap straight to the
+        -- networked state, so late joiners / full updates / PVS re-entries
+        -- see doors already in their real position instead of closed.
+        data = { poseValues = {}, targetValues = {}, startValues = {}, startTimes = {}, durations = {}, lastBits = bits }
+
+        for i = 1, MAX_ANIMATIONS do
+            local v = bit_band( bits, bit_lshift( 1, i - 1 ) ) ~= 0 and 1 or 0
+            local animName = config.names[i]
+            data.poseValues[i]   = v
+            data.targetValues[i] = v
+            data.startValues[i]  = v
+            data.startTimes[i]   = 0
+            data.durations[i]    = GetAnimParam( config, animName, "duration" ) or 2.0
+        end
+
+        vehicle._bcaLerp = data
+
+    elseif bits ~= data.lastBits then
+        -- Server toggled something: update targets for the changed bits only.
+        -- The animation is TIME-based (start value + start time + duration):
+        -- easing is applied to the overall progress, so it takes exactly
+        -- `duration` seconds on every client regardless of frame rate.
+        -- (The old code applied the easing to a per-frame fraction, which
+        -- made doors move faster at LOWER frame rates.)
+        for i = 1, config.count do
+            local mask = bit_lshift( 1, i - 1 )
+            if bit_band( bits, mask ) ~= bit_band( data.lastBits, mask ) then
+                local animName = config.names[i]
+                data.targetValues[i] = bit_band( bits, mask ) ~= 0 and 1 or 0
+                data.startValues[i]  = data.poseValues[i]
+                data.startTimes[i]   = CurTime()
+                data.durations[i]    = GetAnimParam( config, animName, "duration" ) or 2.0
+            end
+        end
+
+        data.lastBits = bits
+    end
+
+    local now               = CurTime()
     local finishSoundsFired = {}
 
     for i = 1, config.count do
@@ -408,34 +350,39 @@ function BlackterioCustomAnims.UpdateAnimations( vehicle )
         if paramName then
             local currentValue = data.poseValues[i]
             local targetValue  = data.targetValues[i]
-            local lerpType     = GetAnimParam( config, paramName, "lerpType" ) or "smooth"
 
-            if math.abs( currentValue - targetValue ) > 0.001 then
-                local lerpAmount = math.min( data.lerpSpeeds[i] * deltaTime, 1 )
-                local newValue
+            if currentValue ~= targetValue then
+                local startValue = data.startValues[i]
+                local travel     = math.abs( targetValue - startValue )
+
+                -- Scale the duration by the distance to travel, so a door
+                -- re-toggled mid-swing moves at the same speed instead of
+                -- taking the full duration for a partial travel.
+                local effDuration = data.durations[i] * ( travel > 0 and travel or 1 )
+                local progress    = effDuration > 0 and math.min( ( now - data.startTimes[i] ) / effDuration, 1 ) or 1
+
+                local lerpType = GetAnimParam( config, paramName, "lerpType" ) or "smooth"
+                local t
 
                 if lerpType == "smooth" then
                     -- Ease in-out
-                    local t = lerpAmount * lerpAmount * ( 3 - 2 * lerpAmount )
-                    newValue = currentValue + ( targetValue - currentValue ) * t
+                    t = progress * progress * ( 3 - 2 * progress )
                 elseif lerpType == "fast_start" then
                     -- Fast start, slow end
-                    local t = 1 - ( 1 - lerpAmount ) ^ 2
-                    newValue = currentValue + ( targetValue - currentValue ) * t
+                    t = 1 - ( 1 - progress ) ^ 2
                 elseif lerpType == "slow_start" then
                     -- Slow start, fast end
-                    local t = lerpAmount ^ 2
-                    newValue = currentValue + ( targetValue - currentValue ) * t
+                    t = progress ^ 2
                 else
-                    -- Linear (default)
-                    newValue = Lerp( lerpAmount, currentValue, targetValue )
+                    -- Linear
+                    t = progress
                 end
 
-                -- Snap to target when close enough, or when closing and within SNAP_THRESHOLD
-                if math.abs( newValue - targetValue ) < 0.001
-                    or ( targetValue == 0 and newValue <= SNAP_THRESHOLD ) then
+                local newValue = startValue + ( targetValue - startValue ) * t
+
+                if progress >= 1 then
                     local soundFollowsDuration = GetAnimParam( config, paramName, "soundFollowsDuration" )
-                    if soundFollowsDuration and targetValue == 0 and currentValue > 0.001 then
+                    if soundFollowsDuration and targetValue == 0 and startValue > 0.001 then
                         local override = config.animOverrides and config.animOverrides[paramName]
                         local snd = ( override and override.customFinishSound ) or config.finishSound
                         if snd and snd ~= "" and not finishSoundsFired[snd] then
@@ -463,7 +410,7 @@ function HandleVehicleAnimationInput( vehicle, seatIndex, action, pressed )
     if not pressed then return false end
     if not IsValid( vehicle ) then return false end
     if seatIndex ~= 1 then return false end
-    if not string.find( action, "animation_" ) then return false end
+    if not string.find( action, "animation_", 1, true ) then return false end
 
     local idx = tonumber( action:match( "^animation_(%d+)$" ) )
     if idx then
@@ -496,7 +443,7 @@ local function InjectIntoVehicle( ent )
 
     local origOnSeatInput = ent.OnSeatInput
     ent.OnSeatInput = function( self, seatIndex, action, pressed )
-        if string.find( action, "animation_" ) then
+        if string.find( action, "animation_", 1, true ) then
             return HandleVehicleAnimationInput( self, seatIndex, action, pressed )
         end
         if origOnSeatInput then
@@ -506,13 +453,16 @@ local function InjectIntoVehicle( ent )
     end
 end
 
-hook.Add( "OnEntityCreated", "BlackterioCustomAnimAutoInject", function( ent )
-    if not ent.GetAnimationConfig then return end
+-- SERVER only: Glide consumes the per-entity GetInputGroups/OnSeatInput
+-- exclusively on the server realm (glide/server/input.lua), so injecting
+-- on the client was dead work.
+if SERVER then
+    hook.Add( "OnEntityCreated", "BlackterioCustomAnimAutoInject", function( ent )
+        if not ent.GetAnimationConfig then return end
 
-    -- Defer one tick: Initialize() needs to run first so ent.IsGlideVehicle is set
-    timer.Simple( 0, function()
-        InjectIntoVehicle( ent )
+        -- Defer one tick: Initialize() needs to run first so ent.IsGlideVehicle is set
+        timer.Simple( 0, function()
+            InjectIntoVehicle( ent )
+        end )
     end )
-end )
-
-
+end

@@ -1,7 +1,5 @@
 -- Location of this file: lua/glide/autoload/
--- Loaded after all Glide files. The Glide global is available here.
--- NOTE: This file loads via Glide's IncludeDir (inside lua/autorun/sh_glide.lua)
--- which runs BEFORE lua/autorun/shared/, so BlackterioExtraFunctions may not exist yet.
+-- Loaded via Glide's IncludeDir (inside lua/autorun/sh_glide.lua).
 BlackterioExtraFunctions = BlackterioExtraFunctions or {}
 
 --[[----------------------------------------
@@ -9,11 +7,18 @@ BlackterioExtraFunctions = BlackterioExtraFunctions or {}
     Adds a manual toggle mode for wipers:
       Auto  = wipers follow weather addons (default behavior)
       Manual = wipers toggled with a configurable key (default: T)
+
+    State lives in NW2 vars on the vehicle, so every client
+    (including late joiners) sees the same thing:
+      "blackterio_wipers_on"          -> manual wiper toggle state
+      "blackterio_wipers_manual_mode" -> the DRIVER's wiper mode
+        (read from their blackterio_wipers_mode userinfo ConVar when
+        they enter seat 1 and refreshed on every toggle; changing the
+        setting mid-drive applies on the next toggle or re-entry)
 ------------------------------------------]]
 
--- State tables indexed by vehicle EntIndex()
-local manualWiperStates   = {} -- [vehicleID] = bool
-local wiperCooldownTimers = {} -- [vehicleID] = CurTime() of last toggle
+local NW_WIPERS_ON   = "blackterio_wipers_on"
+local NW_MANUAL_MODE = "blackterio_wipers_manual_mode"
 
 local WIPER_COOLDOWN = 0.5
 
@@ -22,78 +27,85 @@ local WIPER_COOLDOWN = 0.5
     "Custom Animations - Controls" alongside animations 1-9
 ------------------------------------------]]
 
-Glide.AddInputAction( "door_animations", "toggle_wipers", KEY_T )
+-- Guarded registration: safe on autorefresh and independent of which
+-- Blackterio autoload file happens to run first.
+if not Glide.InputGroups["door_animations"] then
+    Glide.SetupInputGroup( "door_animations" )
+end
+if Glide.InputGroups["door_animations"]["toggle_wipers"] == nil then
+    Glide.AddInputAction( "door_animations", "toggle_wipers", KEY_T )
+end
 
 if CLIENT then
     language.Add( "glide.input.toggle_wipers", "Toggle Wipers" )
 end
 
 --[[----------------------------------------
-    Network
+    Toggle logic (SERVER only — Glide calls
+    ENT:OnSeatInput on the server realm)
 ------------------------------------------]]
 
 if SERVER then
-    util.AddNetworkString( "BlackterioWiperToggle" )
-end
 
---[[----------------------------------------
-    Toggle logic
-------------------------------------------]]
-
-local function ToggleManualWipers( vehicle )
-    if not IsValid( vehicle ) then return end
-
-    local vehicleID = vehicle:EntIndex()
-    local now       = CurTime()
-
-    local lastTime = wiperCooldownTimers[vehicleID] or 0
-    if ( now - lastTime ) < WIPER_COOLDOWN then return end
-    wiperCooldownTimers[vehicleID] = now
-
-    -- Update state in the current realm (both server and client update independently)
-    manualWiperStates[vehicleID] = not ( manualWiperStates[vehicleID] or false )
-
-    if SERVER then
-        net.Start( "BlackterioWiperToggle" )
-            net.WriteEntity( vehicle )
-            net.WriteBool( manualWiperStates[vehicleID] )
-        net.Broadcast()
+    -- Mirror the driver's wiper mode ConVar onto the vehicle, so all
+    -- clients animate using the DRIVER's mode instead of their own.
+    local function UpdateDriverMode( vehicle, ply )
+        if not IsValid( ply ) then return end
+        vehicle:SetNW2Bool( NW_MANUAL_MODE, ply:GetInfoNum( "blackterio_wipers_mode", 0 ) ~= 0 )
     end
-end
 
--- Receive server-authoritative state on all clients (including non-driver clients)
-if CLIENT then
-    net.Receive( "BlackterioWiperToggle", function()
-        local vehicle = net.ReadEntity()
-        local state   = net.ReadBool()
+    hook.Add( "Glide_OnEnterVehicle", "BlackterioWiperDriverMode", function( ply, vehicle, seatIndex )
+        if seatIndex ~= 1 then return end
+        if not IsValid( vehicle ) or not vehicle.IsGlideVehicle then return end
 
-        if not IsValid( vehicle ) then return end
-        manualWiperStates[vehicle:EntIndex()] = state
+        UpdateDriverMode( vehicle, ply )
     end )
-end
 
---[[----------------------------------------
-    Input handler (invoked by injected OnSeatInput)
-------------------------------------------]]
+    local function ToggleManualWipers( vehicle )
+        if not IsValid( vehicle ) then return end
 
-local function HandleWiperInput( vehicle, seatIndex, action, pressed )
-    if not pressed           then return false end
-    if not IsValid( vehicle ) then return false end
-    if seatIndex ~= 1        then return false end
-    if action ~= "toggle_wipers" then return false end
+        local now = CurTime()
+        if ( now - ( vehicle._bwcLastToggle or 0 ) ) < WIPER_COOLDOWN then return end
+        vehicle._bwcLastToggle = now
 
-    ToggleManualWipers( vehicle )
-    return true
+        vehicle:SetNW2Bool( NW_WIPERS_ON, not vehicle:GetNW2Bool( NW_WIPERS_ON, false ) )
+
+        -- Keep the driver's mode fresh in case they changed the setting while seated
+        UpdateDriverMode( vehicle, vehicle:GetDriver() )
+    end
+
+    --[[----------------------------------------
+        Input handler (invoked by injected OnSeatInput)
+    ------------------------------------------]]
+
+    local function HandleWiperInput( vehicle, seatIndex, action, pressed )
+        if not pressed           then return false end
+        if not IsValid( vehicle ) then return false end
+        if seatIndex ~= 1        then return false end
+        if action ~= "toggle_wipers" then return false end
+
+        ToggleManualWipers( vehicle )
+        return true
+    end
+
+    BlackterioExtraFunctions._HandleWiperInput = HandleWiperInput
 end
 
 --[[----------------------------------------
     Auto-inject wiper_control into every Glide vehicle instance.
     Chains correctly with any prior injection (e.g. Custom Anims).
+    Input groups / OnSeatInput only matter on the server realm.
 ------------------------------------------]]
 
 local function InjectWiperControl( ent )
     if not IsValid( ent )     then return end
     if not ent.IsGlideVehicle then return end
+
+    -- Opt-out: vehicles that explicitly declare they don't use the extra
+    -- functions (self.HasExtraFunctions = false in Initialize) don't get
+    -- the wiper toggle either. nil/unset still injects, so third-party
+    -- Glide vehicles keep working like before.
+    if ent.HasExtraFunctions == false then return end
 
     local origGetInputGroups = ent.GetInputGroups
     ent.GetInputGroups = function( self, seatIndex )
@@ -107,7 +119,8 @@ local function InjectWiperControl( ent )
     local origOnSeatInput = ent.OnSeatInput
     ent.OnSeatInput = function( self, seatIndex, action, pressed )
         if action == "toggle_wipers" then
-            return HandleWiperInput( self, seatIndex, action, pressed )
+            local handler = BlackterioExtraFunctions._HandleWiperInput
+            return handler and handler( self, seatIndex, action, pressed ) or false
         end
         if origOnSeatInput then
             return origOnSeatInput( self, seatIndex, action, pressed )
@@ -116,41 +129,42 @@ local function InjectWiperControl( ent )
     end
 end
 
-hook.Add( "OnEntityCreated", "BlackterioWiperControlAutoInject", function( ent )
-    -- Defer one tick: Initialize() must run first so ent.IsGlideVehicle is set
-    timer.Simple( 0, function()
-        if not IsValid( ent ) then return end
-        InjectWiperControl( ent )
+if SERVER then
+    hook.Add( "OnEntityCreated", "BlackterioWiperControlAutoInject", function( ent )
+        -- Defer one tick: Initialize() must run first so ent.IsGlideVehicle is set
+        timer.Simple( 0, function()
+            if not IsValid( ent ) then return end
+            InjectWiperControl( ent )
+        end )
     end )
-end )
-
---[[----------------------------------------
-    State cleanup on vehicle removal
-------------------------------------------]]
-
-hook.Add( "EntityRemoved", "BlackterioWiperControlCleanup", function( ent )
-    if IsValid( ent ) and ent.IsGlideVehicle then
-        local id = ent:EntIndex()
-        manualWiperStates[id]   = nil
-        wiperCooldownTimers[id] = nil
-    end
-end )
+end
 
 --[[----------------------------------------
     Public API — consumed by blackterio_extra_functions.lua
 ------------------------------------------]]
 
--- Returns true when the local client has Manual Mode enabled.
--- Always returns false on the server (server never renders animations).
+-- Returns true when the LOCAL client has Manual Mode enabled.
+-- Kept for the settings panel and backwards compatibility; vehicle
+-- animations now use GetWiperManualMode (the driver's mode) instead.
 function BlackterioExtraFunctions:IsWiperManualMode()
     if not CLIENT then return false end
     local cvar = GetConVar( "blackterio_wipers_mode" )
     return cvar ~= nil and cvar:GetBool()
 end
 
+-- Returns the wiper mode that applies to this vehicle (the driver's mode).
+function BlackterioExtraFunctions:GetWiperManualMode( vehicle )
+    if isnumber( vehicle ) then vehicle = Entity( vehicle ) end
+    if not IsValid( vehicle ) then return false end
+    return vehicle:GetNW2Bool( NW_MANUAL_MODE, false )
+end
+
 -- Returns the current manual wiper active-state for a vehicle.
-function BlackterioExtraFunctions:GetManualWiperState( vehicleID )
-    return manualWiperStates[vehicleID] or false
+-- Accepts the vehicle entity (preferred) or its EntIndex (legacy).
+function BlackterioExtraFunctions:GetManualWiperState( vehicle )
+    if isnumber( vehicle ) then vehicle = Entity( vehicle ) end
+    if not IsValid( vehicle ) then return false end
+    return vehicle:GetNW2Bool( NW_WIPERS_ON, false )
 end
 
 -- Returns whether wiper sounds are enabled for the local client.
