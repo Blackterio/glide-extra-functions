@@ -45,24 +45,23 @@ DEFINE_BASECLASS( "base_glide_car" ) -- strictly necessary if you wanna make sup
 ```
 
 ## Below that, you need to call the "OnUpdateAnimations" (from Glide's base). All the features will be inside this function. 
+#### IMPORTANT: build the config ONCE (inside the `if not self.AnimationConfig` guard) and call UpdateAnimations AFTER it. Do NOT call CreateConfig every frame — it copies the whole default config and creates needless garbage; the old examples also called UpdateAnimations before the config existed, so the first frames ran with the default config.
 ```
 -- Extra functions (animations)
 
 function ENT:OnUpdateAnimations()
- if BlackterioExtraFunctions and extraFunctionsLoaded then
-    if self.HasExtraFunctions then
+    if BlackterioExtraFunctions and extraFunctionsLoaded and self.HasExtraFunctions then
 
-        -- Use a custom configuration for this vehicle in particular, or use the default configuration
-		-- I highly recommend using a custom one
-		
-        BlackterioExtraFunctions:UpdateAnimations(self, self.AnimationConfig)
-		
-	    -- Optional: Configure special parameters for this vehicle (highly recommended)
-      -- This example has all the features activated by default, if you want to deactivate any feature just set it to "false".
-        self.AnimationConfig = BlackterioExtraFunctions:CreateConfig({
-					
+        -- Build the config only ONCE per vehicle.
+        -- Use a custom configuration for this vehicle in particular (highly
+        -- recommended) — otherwise UpdateAnimations falls back to the DefaultConfig.
+        -- This example has all the features activated; all of them are enabled
+        -- by default (except the digital speedo) so you can skip the ones you don't
+        -- need to change, but here we set them anyway as a reference.
+        if not self.AnimationConfig then
+            self.AnimationConfig = BlackterioExtraFunctions:CreateConfig({
+
     -- Activate/deactivate functions.
-    -- All features are enabled by default (except the digital speedo), so it's not really needed to set everything to true, you can just skip it and configure the other values as you need, but for this example we will be setting it anyways.		
     pedals = true,
     clutch = true,
     speedo = true,
@@ -85,6 +84,9 @@ function ENT:OnUpdateAnimations()
     
     -- RPM calibration
     rpmCalibration = -0.04,
+
+    -- Tachometer needle lerp
+    tachoLerpRate = 0.15,
 	
     -- Speedometer calibration and multiplier	
     speedCalibration = 50,
@@ -93,7 +95,7 @@ function ENT:OnUpdateAnimations()
     -- Fuel lerp
     fuelLerpRate = 0.09,
 
-	-- Oil lerp and max value
+	-- Oil lerp and max value (min/max can be inverted if your gauge runs backwards)
     oilLerpRate = 0.5,
     oilMaxValue = 0.9,
     oilMinValue = 0.5,
@@ -118,7 +120,7 @@ function ENT:OnUpdateAnimations()
     digitalSpeedoPos = Vector(0, 0, 0), -- Text position in vehicle
     digitalSpeedoAng = Angle(0, 0, 0), -- Text angle
     digitalSpeedoScale = 0.05, -- Text scale
-    digitalSpeedoFont = "BlackterioDefaultDigitalSpeedo", -- Text font
+    digitalSpeedoFont = "BlackterioDefaultDigitalSpeedo", -- Text font. If you use a CUSTOM font, YOU must create it with surface.CreateFont; the addon no longer creates it for you.
     digitalSpeedoColor = Color(255, 255, 255), -- Text color
     digitalSpeedoUnit = "KMH", -- "KMH" or "MPH", conversions are automatic
     digitalSpeedoShowUnit = false, -- Show speed unit along the speed
@@ -144,14 +146,13 @@ function ENT:OnUpdateAnimations()
         wiperSwitch = "wiperswitch"  
     }
 	]]
-        })
+            })
+        end
+
+        BlackterioExtraFunctions:UpdateAnimations(self, self.AnimationConfig)
     else
         BaseClass.OnUpdateAnimations(self)
     end
-	else
-	BaseClass.OnUpdateAnimations(self) 
-  end
-
 end
 
   -- THIS IS ONLY IF YOU CHOOSE TO HAVE A DIGITAL SPEEDOMETER. 
