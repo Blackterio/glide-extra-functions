@@ -36,9 +36,8 @@ if Glide.InputGroups["door_animations"]["toggle_wipers"] == nil then
     Glide.AddInputAction( "door_animations", "toggle_wipers", KEY_T )
 end
 
-if CLIENT then
-    language.Add( "glide.input.toggle_wipers", "Toggle Wipers" )
-end
+-- Control names come from resource/localization/<lang>/blackterio_extra_functions.properties
+-- (language.Add would override the translated phrases, so it's not used here)
 
 --[[----------------------------------------
     Toggle logic (SERVER only — Glide calls

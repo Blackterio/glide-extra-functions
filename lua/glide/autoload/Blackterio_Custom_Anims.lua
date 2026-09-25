@@ -71,19 +71,8 @@ AddActionOnce( "animation_8", KEY_PAD_8 )
 AddActionOnce( "animation_9", KEY_PAD_9 )
 AddActionOnce( "animation_all", KEY_PAD_0 )
 
-if CLIENT then
-    language.Add( "glide.input.door_animations", "Blackterio's Custom Animations - Controls" )
-    language.Add( "glide.input.animation_1",   "Animation 1" )
-    language.Add( "glide.input.animation_2",   "Animation 2" )
-    language.Add( "glide.input.animation_3",   "Animation 3" )
-    language.Add( "glide.input.animation_4",   "Animation 4" )
-    language.Add( "glide.input.animation_5",   "Animation 5" )
-    language.Add( "glide.input.animation_6",   "Animation 6" )
-    language.Add( "glide.input.animation_7",   "Animation 7" )
-    language.Add( "glide.input.animation_8",   "Animation 8" )
-    language.Add( "glide.input.animation_9",   "Animation 9" )
-    language.Add( "glide.input.animation_all", "All Animations" )
-end
+-- Control names come from resource/localization/<lang>/blackterio_extra_functions.properties
+-- (language.Add would override the translated phrases, so it's not used here)
 
 --[[----------------------------------------
     Config helpers
@@ -115,6 +104,11 @@ local function GetVehicleAnimConfig( vehicle )
             if v.soundFollowsDuration ~= nil then
                 config.soundFollowsDuration = v.soundFollowsDuration
             end
+            -- aimToggle = false opts this vehicle out of the aim-to-toggle
+            -- system (Blackterio_Custom_Anims_Aim.lua)
+            if v.aimToggle ~= nil then
+                config.aimToggle = v.aimToggle
+            end
         end
     end
 
@@ -138,6 +132,8 @@ local function GetVehicleAnimConfig( vehicle )
                     lerpType             = entry.lerpType,
                     soundFollowsDuration = entry.soundFollowsDuration,
                     isDoor               = entry.isDoor,
+                    aimToggle            = entry.aimToggle,
+                    aimEnter             = entry.aimEnter,
                 }
             end
         end
@@ -161,10 +157,15 @@ local function GetCachedConfig( vehicle )
     return config
 end
 
+BlackterioCustomAnims.GetConfig = GetCachedConfig
+
 function BlackterioCustomAnims.InvalidateConfig( vehicle )
     if not IsValid( vehicle ) then return end
     vehicle._bcaConfig = nil
     vehicle._bcaLerp = nil
+    -- Caches of the aim-to-toggle system (Blackterio_Custom_Anims_Aim.lua)
+    vehicle._bcaAimParts = nil
+    vehicle.bcaHasEnterDoor = nil
 end
 
 -- Resolves a per-animation config param, falling back to the global config value.
@@ -227,6 +228,10 @@ local function ToggleAnimation( vehicle, animIndex )
         vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )
     end
 end
+
+-- Shared with the aim-to-toggle system, so keybinds and aiming go through
+-- the same bitmask, cooldown and sounds.
+BlackterioCustomAnims.ToggleAnimation = ToggleAnimation
 
 local function ToggleAllAnimations( vehicle )
     if not SERVER then return end

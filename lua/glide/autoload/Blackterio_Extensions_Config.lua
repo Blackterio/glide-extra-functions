@@ -15,6 +15,11 @@ if CLIENT then
         "Wiper mode: 0 = Auto (weather-based), 1 = Manual (key toggle)" )
     CreateClientConVar( "blackterio_wipers_sound", "1", true, false,
         "Enable wiper sounds: 0 = disabled, 1 = enabled" )
+    -- userinfo = true: the server reads it to skip the "enter through a door" rule
+    CreateClientConVar( "blackterio_aimdoors_enable", "1", true, true,
+        "Aim at a vehicle door, hood or trunk and press [E] to open/close it: 0 = disabled, 1 = enabled" )
+    CreateClientConVar( "blackterio_aimdoors_hint", "1", true, false,
+        "Show the [E] Open/Close hint when aiming at a vehicle door, hood or trunk" )
 end
 
 --[[----------------------------------------
@@ -24,17 +29,27 @@ end
 
 if CLIENT then
     list.Set( "GlideConfigExtensions", "BlackterioExtraFunctions", function( config, panel )
-        config.CreateHeader( panel, "Extra Functions" )
+        config.CreateHeader( panel, language.GetPhrase( "blackterio.config.header" ) )
 
         -- Checked = Manual mode (toggle with key). Unchecked = Auto (weather-based).
         local cvarMode = GetConVar( "blackterio_wipers_mode" )
-        config.CreateToggle( panel, "Manual wipers (toggle with key)", cvarMode:GetBool(), function( value )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.wipers_manual" ), cvarMode:GetBool(), function( value )
             RunConsoleCommand( "blackterio_wipers_mode", value and "1" or "0" )
         end )
 
         local cvarSound = GetConVar( "blackterio_wipers_sound" )
-        config.CreateToggle( panel, "Enable wiper sounds", cvarSound:GetBool(), function( value )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.wipers_sound" ), cvarSound:GetBool(), function( value )
             RunConsoleCommand( "blackterio_wipers_sound", value and "1" or "0" )
+        end )
+
+        local cvarAimEnable = GetConVar( "blackterio_aimdoors_enable" )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.aimdoors_enable" ), cvarAimEnable:GetBool(), function( value )
+            RunConsoleCommand( "blackterio_aimdoors_enable", value and "1" or "0" )
+        end )
+
+        local cvarAimHint = GetConVar( "blackterio_aimdoors_hint" )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.aimdoors_hint" ), cvarAimHint:GetBool(), function( value )
+            RunConsoleCommand( "blackterio_aimdoors_hint", value and "1" or "0" )
         end )
     end )
 end
