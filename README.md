@@ -13,6 +13,8 @@
 - Wipers and light switches
 - Ignition key
 - Support for 9 doors/animations with customizable keys and sounds
+- Open/close doors, hood and trunk by aiming at them with the use key (LVS style, compatible with Glide // Car Keys)
+- Translated to English, Spanish, French, Portuguese, Russian, Turkish, Ukrainian and Chinese
 ```
 
 ### You can see an animation implementation guide for your vehicles in animation_implementation_guide.md

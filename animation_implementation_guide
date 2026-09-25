@@ -84,6 +84,36 @@ end
     local isOpen = BlackterioCustomAnims.GetAnimationState( self, 1 ) -- animation index 1-9
 ```
 
+## Aim to open (doors, hood, trunk)
+### Works automatically on every vehicle that has GetAnimationConfig: aim at the part and press the use key.
+### The parts are detected from the model's hitboxes (studiomdl creates one per bone when the QC has no $hbox), so the door bones need vertices weighted to them.
+### Everything below is optional:
+
+```
+-- In GetAnimationConfig: disable the system for this vehicle (buses, for example)
+aimToggle = false,
+```
+
+```
+-- In GetAdvancedAnimationConfig, per animation:
+{
+name = "backwiper",
+aimToggle = false -- this part can't be opened by aiming (default: true, false if isDoor = false)
+},
+{
+name = "sidedoor",
+aimEnter = true -- pressing use on this part while it's open enters the vehicle (default: true if the name contains "door")
+},
+```
+
+## ConVars
+
+```
+blackterio_aimdoors_require_door 1 -- (server) vehicles with doors can only be entered through an open door
+blackterio_aimdoors_enable 1 -- (client) enable or disable the system for this player (also in Glide's settings)
+blackterio_aimdoors_hint 1 -- (client) show the [E] Open/Close hint (also in Glide's settings)
+```
+
 # All door sounds available on this addon
 
 ```
