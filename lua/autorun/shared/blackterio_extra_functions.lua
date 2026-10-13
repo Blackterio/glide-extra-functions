@@ -11,7 +11,7 @@
 
 -- DEV NOTE: bump VERSION whenever you edit this file, or autorefresh will
 -- hit the guard and your changes won't apply until the next restart.
-local VERSION = 2
+local VERSION = 3
 
 if BlackterioExtraFunctions and ( BlackterioExtraFunctions._version or 0 ) >= VERSION then return end
 
@@ -34,6 +34,15 @@ BlackterioExtraFunctions.DefaultConfig = {
     lightSwitch = true,
     wiperSwitch = true,
     digitalSpeedometer = false, -- False by default, not many vehicles have this feature so it will not be used that much
+
+    -- Added in version 3 (all false by default, so existing vehicles don't change)
+    handbrake = false, -- Parking brake lever. Server side needs ENT:GetExtraFunctionsConfig (see Blackterio_Vehicle_Controls.lua)
+    horn = false, -- Horn button
+    turnStalk = false, -- Turn signal stalk
+    gearLever = false, -- Gear lever (tap on every shift, or one position per gear)
+    engineAnims = false, -- List of looping engine animations, each one { pose = "pose parameter", speed = cycles per engine revolution }
+    destinationSign = false, -- Editable LED destination sign. Call BlackterioExtraFunctions:DrawDestinationSign from ENT:Draw
+    speedLimiter = false, -- Electronic speed limiter. Server side needs ENT:GetExtraFunctionsConfig (see Blackterio_Vehicle_Controls.lua)
 
     -- Pedals lerp
     pedalLerpRate = 0.2,
@@ -90,6 +99,52 @@ BlackterioExtraFunctions.DefaultConfig = {
     digitalSpeedoShowUnit = false, -- Show speed unit
     digitalSpeedoRequireEngine = true, -- Only show when engine is on
 
+    -- Handbrake lever lerp and sounds (cabin sounds: only heard in first person. "" = no sound)
+    handbrakeLerpRate = 0.25,
+    handbrakeOnSound = "",
+    handbrakeOffSound = "",
+
+    -- Horn button lerp
+    hornLerpRate = 0.4,
+
+    -- Turn signal stalk lerp. The pose parameter goes from -1 to 1: this is the value for the LEFT signal (the right one uses the opposite)
+    turnStalkLerpRate = 0.3,
+    turnStalkLeftSign = -1,
+
+    -- Gear lever
+    -- gearLeverMode "tap": the lever is pushed gearLeverAngle degrees (forward on upshift, back on downshift) for gearLeverHold seconds and returns to the center
+    -- gearLeverMode "position": the lever stays at gearLeverPositions[gear] (for example { [-1] = -20, [0] = 0, [1] = 20 })
+    -- gearLeverBone: bone to turn (rotates around gearLeverAxis: 1 = pitch, 2 = yaw, 3 = roll). Set it to "" to use poseParameters.gearLever instead
+    -- With a pose parameter, "tap" writes -1 to 1 and "position" writes the values of gearLeverPositions as they are
+    gearLeverMode = "tap",
+    gearLeverBone = "gearlever",
+    gearLeverAxis = 3,
+    gearLeverAngle = 20,
+    gearLeverSign = 1,
+    gearLeverHold = 0.25,
+    gearLeverLerpRate = 0.35,
+    gearLeverPositions = {},
+
+    -- Destination sign (3D2D). Needs the DestinationText network var: see BlackterioExtraFunctions:AddEditableVars
+    destinationSignPos = Vector(0, 0, 0), -- Top left corner of the sign, seen from the front
+    destinationSignAng = Angle(0, 90, 90),
+    destinationSignScale = 0.05,
+    destinationSignWidth = 716, -- Size in sign pixels (width * scale = units)
+    destinationSignHeight = 100,
+    destinationSignFont = "BlackterioDefaultDestinationSign", -- Custom fonts must be created by the vehicle author with surface.CreateFont
+    destinationSignColor = Color(255, 160, 20),
+    destinationSignBackground = Color(8, 6, 2, 255),
+    destinationSignGridColor = Color(0, 0, 0, 150), -- Dot matrix look. Alpha 0 or destinationSignGridSize 0 = no grid
+    destinationSignGridSize = 6,
+    destinationSignMarqueeSpeed = 120, -- Pixels per second when the text doesn't fit
+    destinationSignDrawDistance = 3000,
+    destinationSignRequirePower = true, -- Only lit with the engine on or the headlights on
+
+    -- Speed limiter: the torque fades out over the last speedLimiterFade (fraction) before the limit. Forward only.
+    -- The limit in km/h is read from the vehicle (ENT:GetSpeedLimit, see AddEditableVars) or from speedLimit if it doesn't have one. 0 = no limit
+    speedLimit = 0,
+    speedLimiterFade = 0.04,
+
     -- OPTIONAL: baseClass = "base_glide_car"
     -- Set this if your vehicle derives from ANOTHER vehicle that also uses
     -- these extra functions (2+ inheritance levels). It resolves the base
@@ -113,7 +168,11 @@ BlackterioExtraFunctions.DefaultConfig = {
         wipers4 = "wipers4",
         ignitionKey = "ignitionkey",
         lightSwitch = "lightswitch",
-        wiperSwitch = "wiperswitch"
+        wiperSwitch = "wiperswitch",
+        handbrake = "handbrake",
+        horn = "horn",
+        turnStalk = "turnstalk",
+        gearLever = "gearlever"
     }
 }
 
@@ -127,6 +186,13 @@ if CLIENT then
         size = 20,
         weight = 700,
         antialias = true,
+    })
+
+    surface.CreateFont("BlackterioDefaultDestinationSign", {
+        font = "Consolas",
+        size = 78,
+        weight = 900,
+        antialias = false,
     })
 end
 
@@ -225,6 +291,31 @@ function BlackterioExtraFunctions:UpdateAnimations(vehicle, config)
     -- Update wiper switch anim
     if config.wiperSwitch then
         self:UpdateWiperSwitch(vehicle, config)
+    end
+
+    -- Update handbrake lever anim
+    if config.handbrake then
+        self:UpdateHandbrake(vehicle, config)
+    end
+
+    -- Update horn button anim
+    if config.horn then
+        self:UpdateHorn(vehicle, config)
+    end
+
+    -- Update turn signal stalk anim
+    if config.turnStalk then
+        self:UpdateTurnStalk(vehicle, config)
+    end
+
+    -- Update gear lever anim
+    if config.gearLever then
+        self:UpdateGearLever(vehicle, config)
+    end
+
+    -- Update engine anims (belts, fan...)
+    if config.engineAnims then
+        self:UpdateEngineAnims(vehicle, config)
     end
 
     -- Invalidate bone cache. This is NOT redundant with the base class call:
@@ -644,6 +735,142 @@ function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
     vehicle:SetPoseParameter(config.poseParameters.wiperSwitch, vehicle.befWiperSwitch)
 end
 
+-- Handbrake lever
+-- The state comes from the "blackterio_handbrake" NW2Int, published by the server
+-- (Blackterio_Vehicle_Controls.lua): counter * 2 + state, 1 = applied. The counter
+-- changes on every press and release, so clients can tell when to play the sounds.
+function BlackterioExtraFunctions:UpdateHandbrake(vehicle, config)
+    if not vehicle.befHandbrake then
+        vehicle.befHandbrake = 0
+    end
+
+    local nw = vehicle:GetNW2Int("blackterio_handbrake", 0)
+    local applied = nw % 2 == 1
+
+    vehicle.befHandbrake = FrameLerp(config.handbrakeLerpRate, vehicle.befHandbrake, applied and 1 or 0)
+    vehicle:SetPoseParameter(config.poseParameters.handbrake, vehicle.befHandbrake)
+
+    -- Cabin sounds, only heard from the inside. The first read is only a baseline
+    local last = vehicle.befHandbrakeSeen
+    vehicle.befHandbrakeSeen = nw
+
+    if CLIENT and last ~= nil and nw ~= last and vehicle.isLocalPlayerInFirstPerson then
+        local onSound, offSound = config.handbrakeOnSound, config.handbrakeOffSound
+        local snd = applied and onSound or offSound
+
+        if snd and snd ~= "" then
+            local other = applied and offSound or onSound
+            if other and other ~= "" then vehicle:StopSound(other) end
+
+            vehicle:EmitSound(snd, 70, 100, 1, CHAN_AUTO)
+        end
+    end
+end
+
+-- Horn button
+function BlackterioExtraFunctions:UpdateHorn(vehicle, config)
+    if not vehicle.befHorn then
+        vehicle.befHorn = 0
+    end
+
+    vehicle.befHorn = FrameLerp(config.hornLerpRate, vehicle.befHorn, vehicle:GetIsHonking() and 1 or 0)
+    vehicle:SetPoseParameter(config.poseParameters.horn, vehicle.befHorn)
+end
+
+-- Turn signal stalk: 1 = left signal, 2 = right signal, 3 = hazards (leave it centered)
+function BlackterioExtraFunctions:UpdateTurnStalk(vehicle, config)
+    if not vehicle.befTurnStalk then
+        vehicle.befTurnStalk = 0
+    end
+
+    local signal = vehicle:GetTurnSignalState()
+    local left = config.turnStalkLeftSign
+    local target = 0
+
+    if signal == 1 then
+        target = left
+    elseif signal == 2 then
+        target = -left
+    end
+
+    vehicle.befTurnStalk = FrameLerp(config.turnStalkLerpRate, vehicle.befTurnStalk, target)
+    vehicle:SetPoseParameter(config.poseParameters.turnStalk, vehicle.befTurnStalk)
+end
+
+-- Gear lever (bone or pose parameter, "tap" or "position" mode)
+local leverAng = Angle()
+
+function BlackterioExtraFunctions:UpdateGearLever(vehicle, config)
+    local boneName = config.gearLeverBone
+    local useBone = boneName ~= nil and boneName ~= ""
+
+    if useBone and (vehicle.befLeverBone == nil or vehicle.befLeverModel ~= vehicle:GetModel()) then
+        vehicle.befLeverBone = vehicle:LookupBone(boneName) or false
+        vehicle.befLeverModel = vehicle:GetModel()
+    end
+
+    if useBone and not vehicle.befLeverBone then return end
+
+    local gear = vehicle:GetGear()
+    local target = 0
+
+    if config.gearLeverMode == "position" then
+        target = config.gearLeverPositions[gear] or 0
+    else
+        local last = vehicle.befLeverGear
+        vehicle.befLeverGear = gear
+
+        if last ~= nil and gear ~= last then
+            vehicle.befLeverTap = gear > last and 1 or -1
+            vehicle.befLeverHoldUntil = CurTime() + config.gearLeverHold
+        end
+
+        if (vehicle.befLeverTap or 0) ~= 0 and CurTime() > (vehicle.befLeverHoldUntil or 0) then
+            vehicle.befLeverTap = 0
+        end
+
+        target = (vehicle.befLeverTap or 0) * config.gearLeverSign * (useBone and config.gearLeverAngle or 1)
+    end
+
+    vehicle.befLever = FrameLerp(config.gearLeverLerpRate, vehicle.befLever or 0, target)
+
+    if useBone then
+        leverAng[1], leverAng[2], leverAng[3] = 0, 0, 0
+        leverAng[config.gearLeverAxis] = vehicle.befLever
+        vehicle:ManipulateBoneAngles(vehicle.befLeverBone, leverAng)
+    else
+        vehicle:SetPoseParameter(config.poseParameters.gearLever, vehicle.befLever)
+    end
+end
+
+-- Engine animations: each entry is a looping pose parameter (0 to 1) that advances
+-- with the engine RPM. `speed` = cycles per engine revolution (keep it low, a real
+-- belt pattern would look strobed)
+function BlackterioExtraFunctions:UpdateEngineAnims(vehicle, config)
+    local anims = config.engineAnims
+    if type(anims) ~= "table" then return end
+
+    local phases = vehicle.befEnginePhases
+
+    if not phases then
+        phases = {}
+        vehicle.befEnginePhases = phases
+    end
+
+    local rpm = vehicle:GetEngineState() > 0 and vehicle:GetEngineRPM() or 0
+
+    for i, anim in ipairs(anims) do
+        local phase = phases[i] or 0
+
+        if rpm > 0 then
+            phase = (phase + rpm / 60 * (anim.speed or 0.25) * FrameTime()) % 1
+            phases[i] = phase
+        end
+
+        vehicle:SetPoseParameter(anim.pose, phase)
+    end
+end
+
 -- Digital Speedometer (CLIENT ONLY)
 if CLIENT then
     function BlackterioExtraFunctions:DrawDigitalSpeedometer(vehicle, config)
@@ -675,6 +902,82 @@ if CLIENT then
     end
 end
 
+-- Destination sign (CLIENT ONLY): LED panel with the text of the vehicle's DestinationText network var
+if CLIENT then
+    function BlackterioExtraFunctions:DrawDestinationSign(vehicle, config)
+        if not config.destinationSign or not isfunction(vehicle.GetDestinationText) then return end
+
+        if config.destinationSignRequirePower and vehicle:GetEngineState() == 0 and vehicle:GetHeadlightState() == 0 then
+            return
+        end
+
+        local text = vehicle:GetDestinationText()
+        if not text or text == "" then return end
+
+        local drawDist = config.destinationSignDrawDistance
+        if EyePos():DistToSqr(vehicle:GetPos()) > drawDist * drawDist then return end
+
+        local w, h = config.destinationSignWidth, config.destinationSignHeight
+        local pos = vehicle:LocalToWorld(config.destinationSignPos)
+        local ang = vehicle:LocalToWorldAngles(config.destinationSignAng)
+
+        cam.Start3D2D(pos, ang, config.destinationSignScale)
+            surface.SetDrawColor(config.destinationSignBackground)
+            surface.DrawRect(0, 0, w, h)
+
+            surface.SetFont(config.destinationSignFont)
+            local tw, th = surface.GetTextSize(text)
+            local x
+
+            if tw <= w - 20 then
+                x = (w - tw) * 0.5
+            else
+                -- Marquee: the text scrolls from right to left
+                local span = tw + w
+                x = w - (CurTime() * config.destinationSignMarqueeSpeed) % span
+            end
+
+            surface.SetTextColor(config.destinationSignColor)
+            surface.SetTextPos(x, (h - th) * 0.5)
+
+            -- Only draw the part of the text inside the sign
+            if x >= 0 and x + tw <= w then
+                surface.DrawText(text)
+            else
+                local cx = x
+
+                for _, c in utf8.codes(text) do
+                    local ch = utf8.char(c)
+                    local cw = surface.GetTextSize(ch)
+
+                    if cx >= 0 and cx + cw <= w then
+                        surface.SetTextPos(cx, (h - th) * 0.5)
+                        surface.DrawText(ch)
+                    end
+
+                    cx = cx + cw
+                end
+            end
+
+            -- Dot matrix look
+            local grid = config.destinationSignGridSize
+            local gridColor = config.destinationSignGridColor
+
+            if grid > 0 and gridColor.a > 0 then
+                surface.SetDrawColor(gridColor)
+
+                for gx = 0, w, grid do
+                    surface.DrawRect(gx, 0, 2, h)
+                end
+
+                for gy = 0, h, grid do
+                    surface.DrawRect(0, gy, w, 2)
+                end
+            end
+        cam.End3D2D()
+    end
+end
+
 -- Helper function to make custom configurations
 function BlackterioExtraFunctions:CreateConfig(customConfig)
     local config = table.Copy(self.DefaultConfig)
@@ -692,4 +995,24 @@ function BlackterioExtraFunctions:CreateConfig(customConfig)
     end
 
     return config
+end
+
+-- Adds the network vars the extra functions read, with the same "Edit Properties" entries on every vehicle.
+-- Call it from ENT:SetupDataTables, after BaseClass.SetupDataTables( self ). Pass the keys you need:
+--   destinationText = true  -> ENT:GetDestinationText / SetDestinationText (String, for the destination sign)
+--   speedLimit = true       -> ENT:GetSpeedLimit / SetSpeedLimit (Int, km/h as the Glide HUD shows them, 0 = no limit, for the speed limiter)
+-- `category` is the Edit Properties category and `order` the position of the first entry (the next one uses order + 1).
+function BlackterioExtraFunctions:AddEditableVars(vehicle, options)
+    options = options or {}
+
+    local category = options.category or "Extra Functions"
+    local order = options.order or 201
+
+    if options.destinationText then
+        vehicle:NetworkVar("String", "DestinationText", { KeyName = "destinationtext", Edit = { type = "Generic", order = order, waitforenter = true, category = category } })
+    end
+
+    if options.speedLimit then
+        vehicle:NetworkVar("Int", "SpeedLimit", { KeyName = "speedlimit", Edit = { type = "Int", order = order + 1, min = 0, max = options.speedLimitMax or 500, category = category } })
+    end
 end

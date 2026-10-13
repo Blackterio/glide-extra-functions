@@ -143,7 +143,11 @@ function ENT:OnUpdateAnimations()
         wipers4 = "wipers4",
         ignitionKey = "ignitionkey",      
         lightSwitch = "lightswitch",      
-        wiperSwitch = "wiperswitch"  
+        wiperSwitch = "wiperswitch",
+        handbrake = "handbrake",   -- version 3
+        horn = "horn",             -- version 3
+        turnStalk = "turnstalk",   -- version 3
+        gearLever = "gearlever"    -- version 3 (only used when gearLeverBone = "")
     }
 	]]
             })
@@ -175,3 +179,249 @@ The recommended names for the pose parameters of your animations are the ones th
 
 
 I also recommend making animations with a maximum of 3 frames. You can make them with more, but it will need a more precise assignment of the lerp values. Except with the wipers animation, it's better if you make it with 10 frames
+
+
+---
+
+# New in version 3: controls, engine animations, destination sign and speed limiter
+
+Everything below is **off by default** (`false` in the default config), so a vehicle made with an older version keeps working exactly the same. Turn on only what your vehicle has. The addon must be version 3 or newer: older versions don't know these options.
+
+| Function | Turn it on with | Pose parameter / bone (default name) |
+|---|---|---|
+| Parking brake lever | `handbrake = true` | pose `handbrake` |
+| Horn button | `horn = true` | pose `horn` |
+| Turn signal stalk | `turnStalk = true` | pose `turnstalk` |
+| Gear lever | `gearLever = true` | bone `gearlever` (or pose `gearlever`) |
+| Engine animations (belts, fan...) | `engineAnims = { { pose = "...", speed = ... } }` | the pose names you list |
+| Destination sign (LED, 3D2D) | `destinationSign = true` | none (it is drawn, not animated) |
+| Speed limiter | `speedLimiter = true` | none (it limits the engine torque) |
+
+The ignition key and the light switch (`ignitionKey` and `lightSwitch`) were already two independent pose parameters. If your model has both pieces, just animate each one with its own pose parameter.
+
+## Share the config with the server: `ENT:GetExtraFunctionsConfig()`
+
+The parking brake and the speed limiter run on the **server** (the handbrake state is networked so every player sees the lever and hears the sound, and the limiter acts on the engine). The server can't read the config you build inside `OnUpdateAnimations` (that function only runs on the client), so define the config in a function that exists in **both realms** (before the `if CLIENT` section). The addon finds it by itself and hooks the vehicle: you don't have to call anything from your `OnSeatInput` or `EngineThink`.
+
+This is the same pattern as `GetAnimationConfig` for the doors. It is also the recommended way to build the config for any new vehicle:
+
+```
+function ENT:GetExtraFunctionsConfig()
+    if not BlackterioExtraFunctions then return end
+
+    -- Build the config only ONCE per vehicle
+    if not self.AnimationConfig then
+        self.AnimationConfig = BlackterioExtraFunctions:CreateConfig({
+            pedals = true,
+            speedo = true,
+            -- ... everything from the main example above ...
+
+            handbrake = true,
+            horn = true,
+            turnStalk = true,
+            gearLever = true,
+            speedLimiter = true,
+        })
+    end
+
+    return self.AnimationConfig
+end
+```
+
+And `OnUpdateAnimations` just uses it:
+
+```
+function ENT:OnUpdateAnimations()
+    if BlackterioExtraFunctions and extraFunctionsLoaded and self.HasExtraFunctions then
+        BlackterioExtraFunctions:UpdateAnimations(self, self:GetExtraFunctionsConfig())
+    else
+        BaseClass.OnUpdateAnimations(self)
+    end
+end
+```
+
+Notes:
+- The config is read ONCE per vehicle and cached, like the doors config.
+- Only the parking brake and the speed limiter need `GetExtraFunctionsConfig`. The other new functions only need the config that you pass to `UpdateAnimations`, but there is no reason to build it twice.
+- `self.HasExtraFunctions = false` (set only in the CLIENT `Initialize`, as in this guide) stops the animations, but the server side keeps running. To disable a function completely, don't turn it on in the config.
+
+## Parking brake lever
+
+```
+handbrake = true,
+handbrakeLerpRate = 0.25,
+handbrakeOnSound = "path/to/handbrake_on.wav",   -- optional, "" = no sound (default)
+handbrakeOffSound = "path/to/handbrake_off.wav", -- optional
+```
+
+The lever follows Glide's handbrake key. The sounds are cabin sounds: they are only heard by the player who is inside the vehicle, in first person. The addon doesn't ship handbrake sounds, so use your own.
+
+## Horn button and turn signal stalk
+
+```
+horn = true,
+hornLerpRate = 0.4,
+
+turnStalk = true,
+turnStalkLerpRate = 0.3,
+turnStalkLeftSign = -1, -- value of the pose parameter for the LEFT signal; the right one uses the opposite
+```
+
+The horn goes from 0 to 1 while it sounds. The stalk goes from -1 to 1: left signal, right signal, and the hazard lights leave it centered (0).
+
+## Gear lever
+
+```
+gearLever = true,
+gearLeverMode = "tap",       -- "tap" or "position"
+gearLeverBone = "gearlever", -- bone to turn. "" = use the pose parameter poseParameters.gearLever instead
+gearLeverAxis = 3,           -- bone rotation: 1 = pitch, 2 = yaw, 3 = roll
+gearLeverAngle = 20,         -- tap mode: degrees
+gearLeverSign = 1,           -- tap mode: -1 inverts the direction
+gearLeverHold = 0.25,        -- tap mode: seconds the lever stays pushed
+gearLeverLerpRate = 0.35,
+gearLeverPositions = {},     -- position mode
+```
+
+- **"tap"**: the lever is pushed `gearLeverAngle` degrees forward on every upshift and back on every downshift, and returns to the center after `gearLeverHold` seconds. Good for automatic gearboxes with a +/- lever.
+- **"position"**: the lever stays at the value that `gearLeverPositions` has for the current gear. Missing gears go to 0. For example, a reverse / neutral / drive lever by bone:
+
+```
+gearLeverMode = "position",
+gearLeverAxis = 2,
+gearLeverPositions = { [-1] = -20, [0] = 0, [1] = 20 }, -- degrees
+```
+
+- With a pose parameter (`gearLeverBone = ""`) the values aren't degrees: "tap" writes -1 to 1, and "position" writes the numbers of `gearLeverPositions` as they are (use the range of your pose parameter).
+- Use the bone when your model already uses all the pose parameters that Source allows (24).
+
+## Engine animations (belts, fan...)
+
+```
+engineAnims = {
+    { pose = "engine_belts", speed = 0.25 },
+    { pose = "engine_fan", speed = 0.4 },
+},
+```
+
+Each entry is a looping pose parameter (0 to 1, it should have `loop` enabled in the QC) that advances with the engine RPM. `speed` is how many cycles it does per engine revolution. Keep it low: a real belt pattern would look strobed on screen (`0.25` works well). It doesn't move while the engine is off.
+
+## Editable destination sign (LED, 3D2D)
+
+A panel that shows a text that the player can edit with "Edit Properties" (right click on the vehicle). It scrolls like a marquee when the text doesn't fit.
+
+**1.** Add the editable network vars in `SetupDataTables`. Call it after the base class:
+
+```
+function ENT:SetupDataTables()
+    BaseClass.SetupDataTables(self)
+
+    BlackterioExtraFunctions:AddEditableVars(self, {
+        category = "My Vehicle",   -- category in Edit Properties
+        order = 201,               -- position of the first entry (the next one uses order + 1)
+        destinationText = true,    -- ENT:GetDestinationText / SetDestinationText (text of the sign)
+        speedLimit = true,         -- ENT:GetSpeedLimit / SetSpeedLimit (km/h, see the speed limiter)
+        -- speedLimitMax = 500,    -- maximum value of the speed limit
+    })
+end
+```
+
+Ask only for the vars you use. Set the initial text with `self:SetDestinationText("CITY")` (for example in `CreateFeatures`).
+
+**2.** Turn it on in the config:
+
+```
+destinationSign = true,
+destinationSignPos = Vector(296.4, -39.9, 109.8), -- top left corner of the sign, seen from the front (vehicle coordinates)
+destinationSignAng = Angle(0, 90, 90),
+destinationSignScale = 0.05,
+destinationSignWidth = 716,  -- size in sign pixels. Width * scale = units (716 * 0.05 = 35.8)
+destinationSignHeight = 100,
+destinationSignFont = "BlackterioDefaultDestinationSign", -- the addon creates this one. A CUSTOM font must be created by you with surface.CreateFont
+destinationSignColor = Color(255, 160, 20),
+destinationSignBackground = Color(8, 6, 2, 255),
+destinationSignGridColor = Color(0, 0, 0, 150), -- dot matrix look. Alpha 0 or GridSize 0 = no grid
+destinationSignGridSize = 6,
+destinationSignMarqueeSpeed = 120, -- pixels per second when the text doesn't fit
+destinationSignDrawDistance = 3000,
+destinationSignRequirePower = true, -- only lit with the engine on or the headlights on
+```
+
+The defaults are the ones above, so usually you only need `destinationSign = true` and `destinationSignPos`.
+
+**3.** Draw it from the client side of your vehicle (CLIENT only, like the digital speedometer):
+
+```
+function ENT:Draw(flags)
+    BaseClass.Draw(self, flags)
+
+    if BlackterioExtraFunctions and extraFunctionsLoaded and self.HasExtraFunctions then
+        BlackterioExtraFunctions:DrawDestinationSign(self, self:GetExtraFunctionsConfig())
+    end
+end
+```
+
+If your vehicle already draws its model in `DrawTranslucent`, call `DrawDestinationSign` from there instead.
+
+## Speed limiter
+
+Like the electronic limiter of a real bus or truck: the engine torque fades out over the last part before the limit, so the vehicle stops accelerating there. It only limits going forward.
+
+```
+speedLimiter = true,
+speedLimiterFade = 0.04, -- fraction of the limit where the torque fades out (0.04 = the last 4 %)
+speedLimit = 0,          -- fixed limit in km/h if the vehicle doesn't have the editable one. 0 = no limit
+```
+
+- If the vehicle has `ENT:GetSpeedLimit()` (added by `AddEditableVars` with `speedLimit = true`), that value is used, so the player can change it from "Edit Properties". Set the default with `self:SetSpeedLimit(120)` in `CreateFeatures`.
+- The limit is in km/h **exactly as Glide's HUD and the Wire speedometer show them**, not real km/h.
+- A vehicle that doesn't use `speedLimiter` is never limited.
+
+## Full example (version 3)
+
+A vehicle with the controls, belts, destination sign and speed limiter:
+
+```
+function ENT:GetExtraFunctionsConfig()
+    if not BlackterioExtraFunctions then return end
+
+    if not self.AnimationConfig then
+        self.AnimationConfig = BlackterioExtraFunctions:CreateConfig({
+            pedals = true,
+            speedo = true,
+            tacho = true,
+            wipers = true,
+
+            handbrake = true,
+            handbrakeOnSound = "my_vehicle/handbrake_on.wav",
+            handbrakeOffSound = "my_vehicle/handbrake_off.wav",
+            horn = true,
+            turnStalk = true,
+            gearLever = true,
+            engineAnims = { { pose = "engine_belts", speed = 0.25 } },
+
+            destinationSign = true,
+            destinationSignPos = Vector(296.4, -39.9, 109.8),
+
+            speedLimiter = true,
+        })
+    end
+
+    return self.AnimationConfig
+end
+
+function ENT:SetupDataTables()
+    BaseClass.SetupDataTables(self)
+
+    BlackterioExtraFunctions:AddEditableVars(self, { category = "My Vehicle", order = 201, destinationText = true, speedLimit = true })
+end
+
+-- In CreateFeatures (SERVER):
+--     self:SetDestinationText("CITY")
+--     self:SetSpeedLimit(120)
+```
+
+Tips:
+- The pose parameters of the controls are written every frame while the function is on, so don't animate them with anything else.
+- The parking brake lever and the gear lever are only animated: the brake itself and the gears are handled by Glide.
+- Test in game with a vehicle that is spawned **after** you edit the Lua: the server side is hooked when the vehicle is created. Changing the map is the simplest way to reload everything.
