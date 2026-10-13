@@ -95,6 +95,12 @@ aimToggle = false,
 ```
 
 ```
+-- In GetAnimationConfig: keep the doors open after the player enters through them (buses, for example).
+-- Default: true (the door closes behind the player). Close it manually with SHIFT + use, or with the animation keybinds.
+closesOnEnter = false,
+```
+
+```
 -- In GetAdvancedAnimationConfig, per animation:
 {
 name = "backwiper",
@@ -103,6 +109,10 @@ aimToggle = false -- this part can't be opened by aiming (default: true, false i
 {
 name = "sidedoor",
 aimEnter = true -- pressing use on this part while it's open enters the vehicle (default: true if the name contains "door")
+},
+{
+name = "doorfront",
+closesOnEnter = false -- this door stays open after the player enters through it (overrides the value set in GetAnimationConfig; default: true)
 },
 ```
 

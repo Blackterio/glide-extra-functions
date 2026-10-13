@@ -65,6 +65,17 @@ local function IsAimEnter( config, animIndex )
     return string.find( string.lower( animName ), "door", 1, true ) ~= nil
 end
 
+-- Whether the door closes by itself after a player enters through it.
+-- Per animation first, then the vehicle-wide value, default true.
+local function ClosesOnEnter( config, animIndex )
+    local override = GetOverride( config, config.names[animIndex] )
+    if override and override.closesOnEnter ~= nil then
+        return override.closesOnEnter
+    end
+
+    return config.closesOnEnter ~= false
+end
+
 --[[----------------------------------------
     SERVER: validate and apply
 ------------------------------------------]]
@@ -134,7 +145,7 @@ if SERVER then
         Glide.EnterVehicleSeat( ply, vehicle, seat )
 
         -- Close the door behind the player
-        if ply:InVehicle() and ply:GetVehicle() == seat
+        if ClosesOnEnter( config, animIndex ) and ply:InVehicle() and ply:GetVehicle() == seat
             and BlackterioCustomAnims.GetAnimationState( vehicle, animIndex ) then
             BlackterioCustomAnims.ToggleAnimation( vehicle, animIndex )
 

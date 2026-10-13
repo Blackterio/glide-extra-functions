@@ -109,6 +109,11 @@ local function GetVehicleAnimConfig( vehicle )
             if v.aimToggle ~= nil then
                 config.aimToggle = v.aimToggle
             end
+            -- closesOnEnter = false keeps the doors open after the player
+            -- enters through them (Blackterio_Custom_Anims_Aim.lua)
+            if v.closesOnEnter ~= nil then
+                config.closesOnEnter = v.closesOnEnter
+            end
         end
     end
 
@@ -134,6 +139,7 @@ local function GetVehicleAnimConfig( vehicle )
                     isDoor               = entry.isDoor,
                     aimToggle            = entry.aimToggle,
                     aimEnter             = entry.aimEnter,
+                    closesOnEnter        = entry.closesOnEnter,
                 }
             end
         end
