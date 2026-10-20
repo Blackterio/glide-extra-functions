@@ -11,7 +11,7 @@
 
 -- DEV NOTE: bump VERSION whenever you edit this file, or autorefresh will
 -- hit the guard and your changes won't apply until the next restart.
-local VERSION = 3
+local VERSION = 4
 
 if BlackterioExtraFunctions and ( BlackterioExtraFunctions._version or 0 ) >= VERSION then return end
 
@@ -116,6 +116,7 @@ BlackterioExtraFunctions.DefaultConfig = {
     -- gearLeverMode "position": the lever stays at gearLeverPositions[gear] (for example { [-1] = -20, [0] = 0, [1] = 20 })
     -- gearLeverBone: bone to turn (rotates around gearLeverAxis: 1 = pitch, 2 = yaw, 3 = roll). Set it to "" to use poseParameters.gearLever instead
     -- With a pose parameter, "tap" writes -1 to 1 and "position" writes the values of gearLeverPositions as they are
+    -- gearLeverMode "h": H-pattern lever, see gearLeverH below
     gearLeverMode = "tap",
     gearLeverBone = "gearlever",
     gearLeverAxis = 3,
@@ -124,6 +125,17 @@ BlackterioExtraFunctions.DefaultConfig = {
     gearLeverHold = 0.25,
     gearLeverLerpRate = 0.35,
     gearLeverPositions = {},
+
+    -- H-pattern lever (gearLeverMode = "h"). The lever has two axes: x moves across the gates, y forwards/backwards
+    -- (y = 0 is the neutral row). On every gear change it goes back to the neutral row, crosses to the gate of the new gear and
+    -- then goes into it, like a real H gearbox (and like OMSI's shifter script).
+    --   positions = { [gear] = { x, y } }  lever position of each Glide gear (-1 = reverse, 0 = neutral, 1..n)
+    --   speedX / speedY                    units per second on each axis
+    --   bones = { { name = "bone", x = Angle( p, y, r ), y = Angle( p, y, r ) } }
+    --       ManipulateBoneAngles( bone, x * bone.x + y * bone.y ): degrees per unit of each axis, in the bone's local angles.
+    --       Several bones are allowed (a lever skinned to a lower and an upper bone, for example)
+    --   poseX / poseY                      optional pose parameters that receive x and y as they are
+    gearLeverH = {},
 
     -- Destination sign (3D2D). Needs the DestinationText network var: see BlackterioExtraFunctions:AddEditableVars
     destinationSignPos = Vector(0, 0, 0), -- Top left corner of the sign, seen from the front
@@ -801,6 +813,10 @@ end
 local leverAng = Angle()
 
 function BlackterioExtraFunctions:UpdateGearLever(vehicle, config)
+    if config.gearLeverMode == "h" then
+        return self:UpdateGearLeverH(vehicle, config)
+    end
+
     local boneName = config.gearLeverBone
     local useBone = boneName ~= nil and boneName ~= ""
 
@@ -841,6 +857,60 @@ function BlackterioExtraFunctions:UpdateGearLever(vehicle, config)
     else
         vehicle:SetPoseParameter(config.poseParameters.gearLever, vehicle.befLever)
     end
+end
+
+-- H-pattern gear lever: back to the neutral row, across to the gate, into the gear
+local hAng = Angle()
+local zeroAng = Angle()
+
+function BlackterioExtraFunctions:UpdateGearLeverH(vehicle, config)
+    local h = config.gearLeverH
+    if not h or not h.positions then return end
+
+    local bones = h.bones or {}
+
+    if vehicle.befHModel ~= vehicle:GetModel() then
+        vehicle.befHModel = vehicle:GetModel()
+        vehicle.befHBones = {}
+
+        for i, b in ipairs(bones) do
+            vehicle.befHBones[i] = vehicle:LookupBone(b.name or "") or false
+        end
+    end
+
+    local target = h.positions[vehicle:GetGear()] or h.positions[0] or { 0, 0 }
+    local tx, ty = target[1] or target.x or 0, target[2] or target.y or 0
+
+    -- first frame: start at the current gear, without travelling
+    local x, y = vehicle.befHX or tx, vehicle.befHY or ty
+    local dt = FrameTime()
+
+    if math.abs(x - tx) > 1e-4 then
+        if math.abs(y) > 1e-4 then
+            y = math.Approach(y, 0, (h.speedY or 4.5) * dt)   -- out of the gear, to the neutral row
+        else
+            x = math.Approach(x, tx, (h.speedX or 15) * dt)   -- across the gates
+        end
+    else
+        y = math.Approach(y, ty, (h.speedY or 4.5) * dt)      -- into the gear
+    end
+
+    vehicle.befHX, vehicle.befHY = x, y
+
+    for i, b in ipairs(bones) do
+        local bone = vehicle.befHBones[i]
+
+        if bone then
+            local ax, ay = b.x or zeroAng, b.y or zeroAng
+            hAng[1] = ax[1] * x + ay[1] * y
+            hAng[2] = ax[2] * x + ay[2] * y
+            hAng[3] = ax[3] * x + ay[3] * y
+            vehicle:ManipulateBoneAngles(bone, hAng)
+        end
+    end
+
+    if h.poseX then vehicle:SetPoseParameter(h.poseX, x) end
+    if h.poseY then vehicle:SetPoseParameter(h.poseY, y) end
 end
 
 -- Engine animations: each entry is a looping pose parameter (0 to 1) that advances

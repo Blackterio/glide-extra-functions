@@ -273,7 +273,7 @@ The horn goes from 0 to 1 while it sounds. The stalk goes from -1 to 1: left sig
 
 ```
 gearLever = true,
-gearLeverMode = "tap",       -- "tap" or "position"
+gearLeverMode = "tap",       -- "tap", "position" or "h"
 gearLeverBone = "gearlever", -- bone to turn. "" = use the pose parameter poseParameters.gearLever instead
 gearLeverAxis = 3,           -- bone rotation: 1 = pitch, 2 = yaw, 3 = roll
 gearLeverAngle = 20,         -- tap mode: degrees
@@ -292,8 +292,62 @@ gearLeverAxis = 2,
 gearLeverPositions = { [-1] = -20, [0] = 0, [1] = 20 }, -- degrees
 ```
 
+- **"h"**: an H pattern lever for manual gearboxes, explained below.
+
 - With a pose parameter (`gearLeverBone = ""`) the values aren't degrees: "tap" writes -1 to 1, and "position" writes the numbers of `gearLeverPositions` as they are (use the range of your pose parameter).
 - Use the bone when your model already uses all the pose parameters that Source allows (24).
+
+### H pattern lever
+
+The lever moves on two axes: **x** across the gates and **y** forwards/backwards (y = 0 is neutral). On every gear change it goes back to neutral, crosses to the new gate and goes into the gear, like a real gearbox.
+
+```
+gearLeverMode = "h",
+gearLeverH = {
+    positions = {                     -- {x, y} of each gear: -1 = reverse, 0 = neutral
+        [-1] = { 1.5, 0.75 },
+        [0] = { 0, 0 },
+        [1] = { 0.75, 0.75 }, [2] = { 0.75, -1.5 },
+        [3] = { -0.75, 0.75 }, [4] = { -0.75, -1.5 },
+        [5] = { -1.5, 0.75 }, [6] = { -1.5, -1.5 },
+    },
+    speedX = 15,                      -- speed across the gates
+    speedY = 4.5,                     -- speed forwards/backwards
+    bones = {                         -- degrees per unit of x and of y
+        { name = "gearlever_low", x = Angle( 0, -4, 0 ), y = Angle( 0, 0, 5 ) },
+        { name = "gearlever_top", x = Angle( 0, -8, 0 ), y = Angle( 0, 0, 8 ) },
+    },
+},
+```
+
+- `positions` can use any units. A gear without a position goes to neutral.
+- `bones` can have one bone or more (this lever has a lower and an upper bone).
+- To find the angles of your bone, try `Angle( 10, 0, 0 )`, `Angle( 0, 10, 0 )` and `Angle( 0, 0, 10 )` with `ManipulateBoneAngles` and keep the ones that tilt the lever sideways and forwards.
+- With pose parameters instead of bones: `poseX = "..."` and `poseY = "..."` receive x and y as they are.
+
+Any number of gears works the same way: one position per gear. For example, 4 gears:
+
+```
+positions = {
+    [-1] = { -1, 1 },
+    [0] = { 0, 0 },
+    [1] = { 1, 1 }, [2] = { 1, -1 },
+    [3] = { 0, 1 }, [4] = { 0, -1 },
+},
+```
+
+Gearboxes with a range or a splitter use the same position for more than one gear. For example, 12 gears where 7-12 repeat the H of 1-6:
+
+```
+local H6 = { { 0.75, 0.75 }, { 0.75, -1.5 }, { -0.75, 0.75 }, { -0.75, -1.5 }, { -1.5, 0.75 }, { -1.5, -1.5 } }
+
+positions = {
+    [-1] = { 1.5, 0.75 },
+    [0] = { 0, 0 },
+    [1] = H6[1], [2] = H6[2], [3] = H6[3], [4] = H6[4], [5] = H6[5], [6] = H6[6],
+    [7] = H6[1], [8] = H6[2], [9] = H6[3], [10] = H6[4], [11] = H6[5], [12] = H6[6],
+},
+```
 
 ## Engine animations (belts, fan...)
 
