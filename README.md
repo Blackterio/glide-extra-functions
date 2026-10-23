@@ -24,9 +24,5 @@
 
 ### You can see an animation implementation guide for your vehicles in animation_implementation_guide.md
 
-### To add the extra functions (gauges, switches, wipers and, since version 3, the controls, belts, destination sign and speed limiter) to your vehicle, follow "Add support to your vehicle.md"
-
-#### Version 3: every new function is off by default, so vehicles made with older versions keep working the same. The handbrake and the speed limiter also need the vehicle to define `ENT:GetExtraFunctionsConfig()` (explained in the guide).
-
 #### Users need to subscribe to this addon if they want to see these extra functions, in case they don't choose to do it, they simply won't see anything of these features.
 
