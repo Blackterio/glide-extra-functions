@@ -114,6 +114,9 @@ local function GetVehicleAnimConfig( vehicle )
             if v.closesOnEnter ~= nil then
                 config.closesOnEnter = v.closesOnEnter
             end
+            -- aimToSit = true lets players aim at a seat and press [E]
+            -- to sit there (Blackterio_Custom_Anims_Aim.lua)
+            config.aimToSit = v.aimToSit == true
         end
     end
 

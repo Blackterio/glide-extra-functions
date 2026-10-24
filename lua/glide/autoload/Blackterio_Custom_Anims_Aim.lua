@@ -27,13 +27,25 @@
                               (default: true, false if isDoor == false)
         aimEnter  = bool   -> [E] on this part while open enters the vehicle
                               (default: the name contains "door")
+
+    Aim-to-sit (off by default):
+      GetAnimationConfig().aimToSit = true -> aim at a seat and press [E]
+      to sit in it (driver or passenger). Seats are invisible in Glide,
+      so a fixed box around each seat is the aim target. If a door and a
+      seat are both under the crosshair, the closest one wins.
 ------------------------------------------]]
 
 BlackterioCustomAnims = BlackterioCustomAnims or {}
 
 local NET_AIM   = "blackterio_anim_aim"
 local NET_EXIT  = "blackterio_anim_exit"
+local NET_SEAT  = "blackterio_seat_aim"
 local USE_RANGE = 90
+
+-- Aim box of a seat in the seat's local space (a seated player faces +Y):
+-- cushion and backrest of a typical seat
+local SEAT_MINS = Vector( -11, -11, 0 )
+local SEAT_MAXS = Vector( 11, 19, 38 )
 
 local function GetOverride( config, animName )
     return config.animOverrides and config.animOverrides[animName]
@@ -88,6 +100,18 @@ if SERVER then
     local BOX_PADDING      = Vector( 48, 48, 48 )   -- open doors stick out of the chassis box
     local CLOSE_RETRY_DELAY = 0.55                  -- a bit over the toggle cooldown (0.5 s, Blackterio_Custom_Anims.lua)
 
+    -- Glide's vehicle lock (same rule Glide uses to let players in) and
+    -- the "Glide // Car Keys" lock (NWBool "CarKeys_Locked": nobody gets in)
+    local function IsLockedFor( ply, vehicle )
+        if ( vehicle:GetIsLocked() and not Glide.CanEnterLockedVehicle( ply, vehicle ) )
+            or vehicle:GetNWBool( "CarKeys_Locked", false ) then
+            ply:EmitSound( "doors/latchlocked2.wav", 50, 100, 1.0, 6, 0, 0 )
+            return true
+        end
+
+        return false
+    end
+
     net.Receive( NET_AIM, function( _, ply )
         if not IsValid( ply ) or not ply:Alive() or ply:InVehicle() then return end
 
@@ -114,17 +138,7 @@ if SERVER then
             vehicle:GetPos(), vehicle:GetAngles(), vehicle:OBBMins() - BOX_PADDING, vehicle:OBBMaxs() + BOX_PADDING )
         if not hit then return end
 
-        -- Respect Glide's vehicle lock (same rule Glide uses to let players in)
-        if vehicle:GetIsLocked() and not Glide.CanEnterLockedVehicle( ply, vehicle ) then
-            ply:EmitSound( "doors/latchlocked2.wav", 50, 100, 1.0, 6, 0, 0 )
-            return
-        end
-
-        -- "Glide // Car Keys" lock (NWBool "CarKeys_Locked"): nobody opens anything from outside
-        if vehicle:GetNWBool( "CarKeys_Locked", false ) then
-            ply:EmitSound( "doors/latchlocked2.wav", 50, 100, 1.0, 6, 0, 0 )
-            return
-        end
+        if IsLockedFor( ply, vehicle ) then return end
 
         if not wantEnter then
             BlackterioCustomAnims.ToggleAnimation( vehicle, animIndex )
@@ -159,6 +173,35 @@ if SERVER then
                 end )
             end
         end
+    end )
+
+    -- Aim-to-sit: enter the seat the player is aiming at
+    util.AddNetworkString( NET_SEAT )
+
+    net.Receive( NET_SEAT, function( _, ply )
+        if not IsValid( ply ) or not ply:Alive() or ply:InVehicle() then return end
+
+        local now = CurTime()
+        if ( ply.bcaNextAimRequest or 0 ) > now then return end
+        ply.bcaNextAimRequest = now + REQUEST_INTERVAL
+
+        local vehicle = net.ReadEntity()
+        local seat    = net.ReadEntity()
+
+        if not IsValid( vehicle ) or not vehicle.IsGlideVehicle or not vehicle.GetAnimationConfig then return end
+        if not IsValid( seat ) or not seat.GlideSeatIndex or seat:GetParent() ~= vehicle then return end
+        if not BlackterioCustomAnims.GetConfig then return end
+
+        local config = BlackterioCustomAnims.GetConfig( vehicle )
+        if not config or not config.aimToSit then return end
+
+        -- In reach and free
+        if seat:GetPos():Distance( ply:GetShootPos() ) > SERVER_RANGE then return end
+        if IsValid( seat:GetDriver() ) then return end
+
+        if IsLockedFor( ply, vehicle ) then return end
+
+        Glide.EnterVehicleSeat( ply, vehicle, seat )
     end )
 
     --[[
@@ -449,13 +492,8 @@ local function RefreshCandidates( origin, force )
     end
 end
 
--- Returns { vehicle, animIndex, pos, open, enter } or nil
-local function FindAimedPart( ply, force )
-    local start = ply:GetShootPos()
-    local delta = ply:GetAimVector() * USE_RANGE
-
-    RefreshCandidates( start, force )
-
+-- Closest door part hit by the ray: { vehicle, part, matrix }, distance
+local function TraceParts( start, delta )
     local best, bestDist
 
     for _, vehicle in ipairs( candidates ) do
@@ -482,6 +520,60 @@ local function FindAimedPart( ply, force )
         end
     end
 
+    return best, bestDist
+end
+
+-- Closest seat of an aimToSit vehicle hit by the ray: { vehicle, seat }, distance
+local function TraceSeats( start, delta )
+    local best, bestDist
+
+    for _, vehicle in ipairs( candidates ) do
+        if IsValid( vehicle ) and vehicle.seats then
+            local config = BlackterioCustomAnims.GetConfig( vehicle )
+
+            if config and config.aimToSit then
+                for _, seat in ipairs( vehicle.seats ) do
+                    if IsValid( seat ) then
+                        local hit = util.IntersectRayWithOBB( start, delta, seat:GetPos(), seat:GetAngles(), SEAT_MINS, SEAT_MAXS )
+
+                        if hit then
+                            local dist = start:Distance( hit )
+
+                            if not bestDist or dist < bestDist then
+                                best, bestDist = { vehicle = vehicle, seat = seat }, dist
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return best, bestDist
+end
+
+-- Returns { vehicle, animIndex, pos, open, enter } for a door part,
+-- { vehicle, seat, pos, occupied } for a seat, or nil
+local function FindAimed( ply, force, doors, seats )
+    local start = ply:GetShootPos()
+    local delta = ply:GetAimVector() * USE_RANGE
+
+    RefreshCandidates( start, force )
+
+    local best, bestDist
+
+    if doors then
+        best, bestDist = TraceParts( start, delta )
+    end
+
+    if seats then
+        local seatHit, seatDist = TraceSeats( start, delta )
+
+        if seatHit and ( not bestDist or seatDist < bestDist ) then
+            best, bestDist = seatHit, seatDist
+        end
+    end
+
     if not best then return nil end
 
     -- Occlusion: something (world, another prop, the car's own body
@@ -489,7 +581,19 @@ local function FindAimedPart( ply, force )
     local tr = util.TraceLine( { start = start, endpos = start + delta, filter = ply } )
     if tr.Hit and bestDist > tr.Fraction * USE_RANGE + OCCLUSION_SLACK then return nil end
 
-    local vehicle, part = best.vehicle, best.part
+    local vehicle = best.vehicle
+    local seat    = best.seat
+
+    if seat then
+        return {
+            vehicle  = vehicle,
+            seat     = seat,
+            pos      = LocalToWorld( ( SEAT_MINS + SEAT_MAXS ) * 0.5, angle_zero, seat:GetPos(), seat:GetAngles() ),
+            occupied = IsValid( seat:GetDriver() )
+        }
+    end
+
+    local part   = best.part
     local config = BlackterioCustomAnims.GetConfig( vehicle )
 
     return {
@@ -501,15 +605,22 @@ local function FindAimedPart( ply, force )
     }
 end
 
-BlackterioCustomAnims.FindAimedPart = FindAimedPart
+function BlackterioCustomAnims.FindAimedPart( ply, force )
+    return FindAimed( ply, force, true, false )
+end
 
--- Per-player opt-out (blackterio_aimdoors_enable, Glide config panel).
--- Disabled: [E] is never intercepted, so it always enters the vehicle.
-local cvarEnable
+-- Per-player opt-outs (blackterio_aimdoors_enable / blackterio_aimseats_enable,
+-- Glide config panel). Disabled: [E] is never intercepted for doors / seats.
+local cvarEnable, cvarSeatEnable
 
 local function IsAimEnabled()
     cvarEnable = cvarEnable or GetConVar( "blackterio_aimdoors_enable" )
     return not cvarEnable or cvarEnable:GetBool()
+end
+
+local function IsSeatAimEnabled()
+    cvarSeatEnable = cvarSeatEnable or GetConVar( "blackterio_aimseats_enable" )
+    return not cvarSeatEnable or cvarSeatEnable:GetBool()
 end
 
 --[[----------------------------------------
@@ -564,10 +675,24 @@ hook.Add( "PlayerBindPress", "BlackterioCustomAnims.AimUse", function( ply, bind
     if not pressed then return end
     if not string.find( bind, "+use", 1, true ) then return end
     if ply:InVehicle() then return end
-    if not IsAimEnabled() then return end
 
-    local aimed = FindAimedPart( ply, true )
+    local doors, seats = IsAimEnabled(), IsSeatAimEnabled()
+    if not doors and not seats then return end
+
+    local aimed = FindAimed( ply, true, doors, seats )
     if not aimed then return end   -- normal +use: Glide enters the vehicle
+
+    if aimed.seat then
+        -- Occupied: swallow the +use, so Glide doesn't put the player in another seat
+        if not aimed.occupied then
+            net.Start( NET_SEAT )
+            net.WriteEntity( aimed.vehicle )
+            net.WriteEntity( aimed.seat )
+            net.SendToServer()
+        end
+
+        return true
+    end
 
     local wantEnter = aimed.enter and aimed.open and not ply:KeyDown( IN_SPEED )
 
@@ -585,7 +710,7 @@ end )
     CLIENT: hint and developer boxes
 ------------------------------------------]]
 
-local cvarHint
+local cvarHint, cvarSeatHint
 local cvarDeveloper = GetConVar( "developer" )
 local currentAim
 
@@ -594,24 +719,36 @@ local function KeyName( bind, fallback )
 end
 
 hook.Add( "Think", "BlackterioCustomAnims.AimTrack", function()
-    cvarHint = cvarHint or GetConVar( "blackterio_aimdoors_hint" )
+    cvarHint     = cvarHint or GetConVar( "blackterio_aimdoors_hint" )
+    cvarSeatHint = cvarSeatHint or GetConVar( "blackterio_aimseats_hint" )
 
-    local wantHint = cvarHint and cvarHint:GetBool()
+    local doors, seats = IsAimEnabled(), IsSeatAimEnabled()
+    local doorHint = doors and cvarHint and cvarHint:GetBool()
+    local seatHint = seats and cvarSeatHint and cvarSeatHint:GetBool()
     local wantDev  = cvarDeveloper:GetInt() > 0
 
     currentAim = nil
-    if not IsAimEnabled() then return end
-    if not wantHint and not wantDev then return end
+    if not doors and not seats then return end
+    if not doorHint and not seatHint and not wantDev then return end
 
     local ply = LocalPlayer()
     if not IsValid( ply ) or ply:InVehicle() or not ply:Alive() then return end
 
-    currentAim = FindAimedPart( ply, false )
+    currentAim = FindAimed( ply, false, doors, seats )
+
+    if currentAim then
+        if currentAim.seat then
+            currentAim.hint = seatHint and true or false
+        else
+            currentAim.hint = doorHint and true or false
+        end
+    end
 end )
 
 local COLOR_SHADOW        = Color( 0, 0, 0, 150 )
 local COLOR_FRIEND_LOCKED = Color( 255, 210, 60 )   -- Glide lock: owner and friends can still open
 local COLOR_LOCKED        = Color( 255, 70, 70 )    -- "Glide // Car Keys" lock: nobody can open
+local COLOR_OCCUPIED      = Color( 170, 170, 170 )
 
 -- Texts: resource/localization/<lang>/blackterio_extra_functions.properties
 local GetPhrase = language.GetPhrase
@@ -623,7 +760,7 @@ end
 
 hook.Add( "HUDPaint", "BlackterioCustomAnims.AimHint", function()
     -- The vehicle can be removed between Think (where currentAim is set) and this hook
-    if not currentAim or not IsValid( currentAim.vehicle ) or not ( cvarHint and cvarHint:GetBool() ) then return end
+    if not currentAim or not IsValid( currentAim.vehicle ) or not currentAim.hint then return end
 
     local screen = currentAim.pos:ToScreen()
     if not screen.visible then return end
@@ -631,7 +768,14 @@ hook.Add( "HUDPaint", "BlackterioCustomAnims.AimHint", function()
     local useKey = KeyName( "+use", "E" )
     local text
 
-    if not currentAim.open then
+    if currentAim.seat then
+        if currentAim.occupied then
+            DrawHintLine( GetPhrase( "blackterio.aim.occupied" ), screen.x, screen.y, COLOR_OCCUPIED )
+            return
+        end
+
+        text = string.format( GetPhrase( "blackterio.aim.sit" ), useKey )
+    elseif not currentAim.open then
         text = string.format( GetPhrase( "blackterio.aim.open" ), useKey )
     elseif currentAim.enter then
         text = string.format( GetPhrase( "blackterio.aim.enter" ), useKey ) .. "\n"
@@ -660,14 +804,40 @@ end )
 
 local COLOR_PART  = Color( 255, 60, 60 )
 local COLOR_AIMED = Color( 60, 255, 60 )
+local COLOR_SEAT  = Color( 255, 255, 255 )
+
+-- Box around the aimed seat (seats are invisible in Glide, so no outline)
+hook.Add( "PostDrawTranslucentRenderables", "BlackterioCustomAnims.AimSeatBox", function( depth, skybox )
+    if depth or skybox then return end
+    if not currentAim or not currentAim.seat or not currentAim.hint then return end
+
+    local seat = currentAim.seat
+    if not IsValid( seat ) then return end
+
+    render.DrawWireframeBox( seat:GetPos(), seat:GetAngles(), SEAT_MINS, SEAT_MAXS, currentAim.occupied and COLOR_OCCUPIED or COLOR_SEAT, true )
+end )
 
 hook.Add( "PostDrawTranslucentRenderables", "BlackterioCustomAnims.AimDebug", function( depth, skybox )
     if depth or skybox then return end
     if cvarDeveloper:GetInt() < 1 then return end
-    if not IsAimEnabled() then return end
+
+    local doors, seats = IsAimEnabled(), IsSeatAimEnabled()
 
     for _, vehicle in ipairs( candidates ) do
-        if IsValid( vehicle ) then
+        if IsValid( vehicle ) and seats and vehicle.seats then
+            local config = BlackterioCustomAnims.GetConfig( vehicle )
+
+            if config and config.aimToSit then
+                for _, seat in ipairs( vehicle.seats ) do
+                    if IsValid( seat ) then
+                        local aimed = currentAim and currentAim.seat == seat
+                        render.DrawWireframeBox( seat:GetPos(), seat:GetAngles(), SEAT_MINS, SEAT_MAXS, aimed and COLOR_AIMED or COLOR_PART, true )
+                    end
+                end
+            end
+        end
+
+        if IsValid( vehicle ) and doors then
             local parts = BlackterioCustomAnims.GetAimPartMap( vehicle )
 
             if parts then

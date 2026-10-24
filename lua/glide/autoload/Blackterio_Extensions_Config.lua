@@ -20,6 +20,10 @@ if CLIENT then
         "Aim at a vehicle door, hood or trunk and press [E] to open/close it: 0 = disabled, 1 = enabled" )
     CreateClientConVar( "blackterio_aimdoors_hint", "1", true, false,
         "Show the [E] Open/Close hint when aiming at a vehicle door, hood or trunk" )
+    CreateClientConVar( "blackterio_aimseats_enable", "1", true, false,
+        "Aim at a vehicle seat and press [E] to sit in it (vehicles with aimToSit): 0 = disabled, 1 = enabled" )
+    CreateClientConVar( "blackterio_aimseats_hint", "1", true, false,
+        "Show the box and the [E] Sit hint when aiming at a vehicle seat" )
 end
 
 --[[----------------------------------------
@@ -50,6 +54,16 @@ if CLIENT then
         local cvarAimHint = GetConVar( "blackterio_aimdoors_hint" )
         config.CreateToggle( panel, language.GetPhrase( "blackterio.config.aimdoors_hint" ), cvarAimHint:GetBool(), function( value )
             RunConsoleCommand( "blackterio_aimdoors_hint", value and "1" or "0" )
+        end )
+
+        local cvarSeatEnable = GetConVar( "blackterio_aimseats_enable" )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.aimseats_enable" ), cvarSeatEnable:GetBool(), function( value )
+            RunConsoleCommand( "blackterio_aimseats_enable", value and "1" or "0" )
+        end )
+
+        local cvarSeatHint = GetConVar( "blackterio_aimseats_hint" )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.aimseats_hint" ), cvarSeatHint:GetBool(), function( value )
+            RunConsoleCommand( "blackterio_aimseats_hint", value and "1" or "0" )
         end )
     end )
 end

@@ -116,12 +116,22 @@ closesOnEnter = false -- this door stays open after the player enters through it
 },
 ```
 
+## Aim to sit (off by default)
+### Aim at any seat and press the use key to sit in it. Locks are respected.
+
+```
+-- In GetAnimationConfig: enable it for the whole vehicle (default: false)
+aimToSit = true,
+```
+
 ## ConVars
 
 ```
 blackterio_aimdoors_require_door 1 -- (server) vehicles with doors can only be entered through an open door
 blackterio_aimdoors_enable 1 -- (client) enable or disable the system for this player (also in Glide's settings)
 blackterio_aimdoors_hint 1 -- (client) show the [E] Open/Close hint (also in Glide's settings)
+blackterio_aimseats_enable 1 -- (client) enable or disable aim to sit for this player (also in Glide's settings)
+blackterio_aimseats_hint 1 -- (client) show the seat box and the [E] Sit hint (also in Glide's settings)
 ```
 
 # All door sounds available on this addon
