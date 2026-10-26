@@ -11,12 +11,15 @@
 
 -- DEV NOTE: bump VERSION whenever you edit this file, or autorefresh will
 -- hit the guard and your changes won't apply until the next restart.
-local VERSION = 4
+-- VERSION is the date of the release as YYMMDD, so the guard orders the
+-- versions across years. It's shown as vMMDDYY (261026 = v102626).
+local VERSION = 261026
 
 if BlackterioExtraFunctions and ( BlackterioExtraFunctions._version or 0 ) >= VERSION then return end
 
 BlackterioExtraFunctions = BlackterioExtraFunctions or {}
 BlackterioExtraFunctions._version = VERSION
+BlackterioExtraFunctions._versionLabel = string.format( "v%02d%02d%02d", math.floor( VERSION / 100 ) % 100, VERSION % 100, math.floor( VERSION / 10000 ) )
 
 -- This is the default configuration in case you don't choose to make a custom one for your vehicle
 BlackterioExtraFunctions.DefaultConfig = {

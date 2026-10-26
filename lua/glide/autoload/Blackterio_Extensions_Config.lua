@@ -24,6 +24,10 @@ if CLIENT then
         "Aim at a vehicle seat and press [E] to sit in it (vehicles with aimToSit): 0 = disabled, 1 = enabled" )
     CreateClientConVar( "blackterio_aimseats_hint", "1", true, false,
         "Show the box and the [E] Sit hint when aiming at a vehicle seat" )
+    CreateClientConVar( "blackterio_clickinteract_enable", "1", true, false,
+        "Hold the free look key and click on a vehicle part while seated (vehicles with clickToInteract): 0 = disabled, 1 = enabled" )
+    CreateClientConVar( "blackterio_clickinteract_hint", "1", true, false,
+        "Show the crosshair and the click hint when aiming at a vehicle part while seated" )
 end
 
 --[[----------------------------------------
@@ -64,6 +68,16 @@ if CLIENT then
         local cvarSeatHint = GetConVar( "blackterio_aimseats_hint" )
         config.CreateToggle( panel, language.GetPhrase( "blackterio.config.aimseats_hint" ), cvarSeatHint:GetBool(), function( value )
             RunConsoleCommand( "blackterio_aimseats_hint", value and "1" or "0" )
+        end )
+
+        local cvarClickEnable = GetConVar( "blackterio_clickinteract_enable" )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.clickinteract_enable" ), cvarClickEnable:GetBool(), function( value )
+            RunConsoleCommand( "blackterio_clickinteract_enable", value and "1" or "0" )
+        end )
+
+        local cvarClickHint = GetConVar( "blackterio_clickinteract_hint" )
+        config.CreateToggle( panel, language.GetPhrase( "blackterio.config.clickinteract_hint" ), cvarClickHint:GetBool(), function( value )
+            RunConsoleCommand( "blackterio_clickinteract_hint", value and "1" or "0" )
         end )
     end )
 end

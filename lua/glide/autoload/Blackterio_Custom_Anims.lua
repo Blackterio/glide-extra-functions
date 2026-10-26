@@ -117,6 +117,9 @@ local function GetVehicleAnimConfig( vehicle )
             -- aimToSit = true lets players aim at a seat and press [E]
             -- to sit there (Blackterio_Custom_Anims_Aim.lua)
             config.aimToSit = v.aimToSit == true
+            -- clickToInteract = true lets seated players hold the free look
+            -- key, aim at a part and click it (Blackterio_Custom_Anims_Aim.lua)
+            config.clickToInteract = v.clickToInteract == true
         end
     end
 
@@ -143,6 +146,7 @@ local function GetVehicleAnimConfig( vehicle )
                     aimToggle            = entry.aimToggle,
                     aimEnter             = entry.aimEnter,
                     closesOnEnter        = entry.closesOnEnter,
+                    clickToInteract      = entry.clickToInteract,
                 }
             end
         end
@@ -174,6 +178,7 @@ function BlackterioCustomAnims.InvalidateConfig( vehicle )
     vehicle._bcaLerp = nil
     -- Caches of the aim-to-toggle system (Blackterio_Custom_Anims_Aim.lua)
     vehicle._bcaAimParts = nil
+    vehicle._bcaClickParts = nil
     vehicle.bcaHasEnterDoor = nil
 end
 
@@ -457,6 +462,12 @@ local function InjectIntoVehicle( ent )
 
     local origOnSeatInput = ent.OnSeatInput
     ent.OnSeatInput = function( self, seatIndex, action, pressed )
+        -- The click belongs to the part the seated player is aiming at, not to Glide
+        -- (click-to-interact, Blackterio_Custom_Anims_Aim.lua)
+        if pressed and BlackterioCustomAnims.IsClickBlocking and BlackterioCustomAnims.IsClickBlocking( self, seatIndex, action ) then
+            return true
+        end
+
         if string.find( action, "animation_", 1, true ) then
             return HandleVehicleAnimationInput( self, seatIndex, action, pressed )
         end

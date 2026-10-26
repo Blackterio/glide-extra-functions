@@ -33,6 +33,15 @@
       to sit in it (driver or passenger). Seats are invisible in Glide,
       so a fixed box around each seat is the aim target. If a door and a
       seat are both under the crosshair, the closest one wins.
+
+    Click-to-interact (off by default), seated in any seat:
+      Hold the free look key (Glide's control, ALT by default), aim at a
+      part with the center of the screen and click the left mouse button
+      to open/close it. First person only. While a part is aimed the click
+      is not sent to Glide (manual gear shifting, weapons).
+      GetAnimationConfig().clickToInteract = true -> all the animations
+      GetAdvancedAnimationConfig() entry:
+        clickToInteract = bool -> this animation only (overrides the above)
 ------------------------------------------]]
 
 BlackterioCustomAnims = BlackterioCustomAnims or {}
@@ -40,6 +49,7 @@ BlackterioCustomAnims = BlackterioCustomAnims or {}
 local NET_AIM   = "blackterio_anim_aim"
 local NET_EXIT  = "blackterio_anim_exit"
 local NET_SEAT  = "blackterio_seat_aim"
+local NET_CLICK = "blackterio_anim_click"
 local USE_RANGE = 90
 
 -- Aim box of a seat in the seat's local space (a seated player faces +Y):
@@ -86,6 +96,20 @@ local function ClosesOnEnter( config, animIndex )
     end
 
     return config.closesOnEnter ~= false
+end
+
+-- Whether a seated player can click this animation. Per animation first,
+-- then the vehicle-wide value, default false.
+local function IsClickEligible( config, animIndex )
+    local animName = config.names[animIndex]
+    if not animName then return false end
+
+    local override = GetOverride( config, animName )
+    if override and override.clickToInteract ~= nil then
+        return override.clickToInteract
+    end
+
+    return config.clickToInteract == true
 end
 
 --[[----------------------------------------
@@ -203,6 +227,71 @@ if SERVER then
 
         Glide.EnterVehicleSeat( ply, vehicle, seat )
     end )
+
+    --[[
+        Click-to-interact: the seated player's client reports which part is
+        under the crosshair (while the free look key is held), the click
+        itself is read here, so it can also be kept away from Glide.
+    ]]
+    util.AddNetworkString( NET_CLICK )
+
+    net.Receive( NET_CLICK, function( _, ply )
+        local vehicle   = net.ReadEntity()
+        local animIndex = net.ReadUInt( 4 )
+
+        if not IsValid( ply ) then return end
+
+        ply.bcaClickTarget = nil
+        if animIndex == 0 then return end   -- the crosshair left the part
+
+        if not ply:Alive() or not IsValid( vehicle ) or not vehicle.IsGlideVehicle or not vehicle.GetAnimationConfig then return end
+        if ply:GlideGetVehicle() ~= vehicle then return end
+        if not BlackterioCustomAnims.GetConfig then return end
+
+        local config = BlackterioCustomAnims.GetConfig( vehicle )
+        if not config or animIndex > config.count then return end
+        if not IsClickEligible( config, animIndex ) then return end
+
+        ply.bcaClickTarget = { vehicle = vehicle, animIndex = animIndex }
+    end )
+
+    hook.Add( "PlayerButtonDown", "BlackterioCustomAnims.ClickToggle", function( ply, button )
+        if button ~= MOUSE_LEFT then return end
+
+        local target = ply.bcaClickTarget
+        if not target then return end
+
+        if not IsValid( target.vehicle ) or ply:GlideGetVehicle() ~= target.vehicle then
+            ply.bcaClickTarget = nil
+            return
+        end
+
+        BlackterioCustomAnims.ToggleAnimation( target.vehicle, target.animIndex )
+    end )
+
+    hook.Add( "Glide_OnExitVehicle", "BlackterioCustomAnims.ClickClear", function( ply )
+        ply.bcaClickTarget = nil
+    end )
+
+    -- Used by the OnSeatInput injected in Blackterio_Custom_Anims.lua: while a
+    -- seated player aims at a part, the Glide actions on the left mouse button
+    -- (manual gear shifting, weapons) don't fire. Releases always go through.
+    function BlackterioCustomAnims.IsClickBlocking( vehicle, seatIndex, action )
+        local ply = vehicle:GetSeatDriver( seatIndex )
+        if not IsValid( ply ) then return false end
+
+        local target = ply.bcaClickTarget
+        if not target or target.vehicle ~= vehicle then return false end
+
+        local settings = Glide.playerSettings and Glide.playerSettings[ply]
+        if not settings then return false end
+
+        for _, actions in pairs( settings.binds ) do
+            if actions[action] == MOUSE_LEFT then return true end
+        end
+
+        return false
+    end
 
     --[[
         Open and close the door closest to the exit point when a player
@@ -358,7 +447,10 @@ local function BoneMoved( a, b )
     return false
 end
 
-local function BuildPartMap( vehicle, config )
+-- isEligible picks the animations that get hitboxes (default: aim-to-toggle)
+local function BuildPartMap( vehicle, config, isEligible )
+    isEligible = isEligible or IsAimEligible
+
     local boneCount = vehicle:GetBoneCount() or 0
     if boneCount <= 0 then return nil end
 
@@ -372,7 +464,7 @@ local function BuildPartMap( vehicle, config )
     for i = 1, config.count do
         local poseName = config.names[i]
 
-        if poseName and IsAimEligible( config, i ) and vehicle:LookupPoseParameter( poseName ) >= 0 then
+        if poseName and isEligible( config, i ) and vehicle:LookupPoseParameter( poseName ) >= 0 then
             vehicle:SetPoseParameter( poseName, 0 )
             local closed = SnapshotBones( vehicle, boneCount )
 
@@ -429,17 +521,19 @@ local function BuildPartMap( vehicle, config )
     return parts
 end
 
-local function GetPartMap( vehicle, config )
-    local key = vehicle:GetModel() or ""
+local function GetPartMap( vehicle, config, isEligible, keyPrefix )
+    isEligible = isEligible or IsAimEligible
+
+    local key = ( keyPrefix or "" ) .. ( vehicle:GetModel() or "" )
 
     for i = 1, config.count do
-        key = key .. "|" .. tostring( config.names[i] ) .. ( IsAimEligible( config, i ) and "" or "!" )
+        key = key .. "|" .. tostring( config.names[i] ) .. ( isEligible( config, i ) and "" or "!" )
     end
 
     local parts = partMapCache[key]
 
     if parts == nil then
-        parts = BuildPartMap( vehicle, config )
+        parts = BuildPartMap( vehicle, config, isEligible )
         if not parts then return nil end   -- not cached: retry on a later frame
         partMapCache[key] = parts
     end
@@ -467,6 +561,38 @@ function BlackterioCustomAnims.GetAimPartMap( vehicle )
 
     parts = GetPartMap( vehicle, config )
     if parts then vehicle._bcaAimParts = parts end   -- nil = bones not ready yet, retry later
+
+    return parts
+end
+
+-- Same for the animations a seated player can click (click-to-interact).
+-- It's a separate map: its animations (a window, a blind...) can take
+-- hitboxes that the aim-to-toggle map gives to the door.
+function BlackterioCustomAnims.GetClickPartMap( vehicle )
+    if not IsValid( vehicle ) then return nil end
+
+    local parts = vehicle._bcaClickParts
+    if parts ~= nil then return parts or nil end
+
+    if not BlackterioCustomAnims.GetConfig then return nil end
+
+    local config = BlackterioCustomAnims.GetConfig( vehicle )
+    local any = false
+
+    for i = 1, config and config.count or 0 do
+        if IsClickEligible( config, i ) then
+            any = true
+            break
+        end
+    end
+
+    if not any then
+        vehicle._bcaClickParts = false
+        return nil
+    end
+
+    parts = GetPartMap( vehicle, config, IsClickEligible, "click|" )
+    if parts then vehicle._bcaClickParts = parts end
 
     return parts
 end
@@ -852,4 +978,112 @@ hook.Add( "PostDrawTranslucentRenderables", "BlackterioCustomAnims.AimDebug", fu
             end
         end
     end
+end )
+
+--[[----------------------------------------
+    CLIENT: click to interact (seated)
+------------------------------------------]]
+
+local CLICK_RANGE         = 300   -- from the driver's seat of a coach to its middle door
+local CLICK_SEND_INTERVAL = 0.1   -- seconds between reports to the server
+
+local cvarClickEnable, cvarClickHint
+local clickHeld = false   -- free look key down, first person, a clickable vehicle
+local clickAim            -- { animIndex, open } while the crosshair is on a part
+local clickSent = 0       -- animation last reported to the server (0 = none)
+local nextClickSend = 0
+
+-- The free look key of Glide's controls (ALT by default)
+local function IsClickKeyDown()
+    local binds = Glide.Config and Glide.Config.binds
+    local key = binds and binds.general_controls and binds.general_controls.free_look
+
+    return key ~= nil and key > KEY_NONE and input.IsKeyDown( key )
+end
+
+-- Closest clickable part under the center of the screen: { animIndex, open }
+local function FindClickAimed( vehicle, parts )
+    local start = EyePos()
+    local delta = EyeAngles():Forward() * CLICK_RANGE
+    local best, bestDist
+
+    for _, part in ipairs( parts ) do
+        local m = vehicle:GetBoneMatrix( part.bone )
+
+        if m then
+            local hit = util.IntersectRayWithOBB( start, delta, m:GetTranslation(), m:GetAngles(), part.mins, part.maxs )
+
+            if hit then
+                local dist = start:Distance( hit )
+
+                if not bestDist or dist < bestDist then
+                    best, bestDist = part, dist
+                end
+            end
+        end
+    end
+
+    if not best then return nil end
+
+    -- Only the world blocks the view: the vehicle's own hull is around the player
+    local tr = util.TraceLine( { start = start, endpos = start + delta, mask = MASK_SOLID_BRUSHONLY } )
+    if tr.Hit and bestDist > tr.Fraction * CLICK_RANGE + OCCLUSION_SLACK then return nil end
+
+    return { animIndex = best.animIndex, open = BlackterioCustomAnims.GetAnimationState( vehicle, best.animIndex ) }
+end
+
+hook.Add( "Think", "BlackterioCustomAnims.ClickTrack", function()
+    cvarClickEnable = cvarClickEnable or GetConVar( "blackterio_clickinteract_enable" )
+
+    clickHeld, clickAim = false, nil
+
+    local ply = LocalPlayer()
+    local vehicle = IsValid( ply ) and ply:Alive() and ply:GlideGetVehicle() or NULL
+    local inFirstPerson = IsValid( vehicle ) and vehicle.isLocalPlayerInFirstPerson
+
+    if inFirstPerson and ( not cvarClickEnable or cvarClickEnable:GetBool() )
+        and IsClickKeyDown() and not vgui.CursorVisible() and not gui.IsGameUIVisible() then
+
+        local parts = vehicle.GetAnimationConfig and BlackterioCustomAnims.GetClickPartMap( vehicle )
+
+        if parts then
+            clickHeld = true
+            clickAim  = FindClickAimed( vehicle, parts )
+        end
+    end
+
+    -- Tell the server when the part under the crosshair changes
+    local animIndex = clickAim and clickAim.animIndex or 0
+
+    if animIndex ~= clickSent and RealTime() >= nextClickSend then
+        nextClickSend = RealTime() + CLICK_SEND_INTERVAL
+        clickSent = animIndex
+
+        net.Start( NET_CLICK )
+        net.WriteEntity( vehicle )
+        net.WriteUInt( animIndex, 4 )
+        net.SendToServer()
+    end
+end )
+
+hook.Add( "HUDPaint", "BlackterioCustomAnims.ClickHint", function()
+    if not clickHeld then return end
+
+    cvarClickHint = cvarClickHint or GetConVar( "blackterio_clickinteract_hint" )
+    if cvarClickHint and not cvarClickHint:GetBool() then return end
+
+    local x, y = ScrW() * 0.5, ScrH() * 0.5
+
+    -- Crosshair: a dot, green while a part is aimed
+    surface.SetDrawColor( COLOR_SHADOW )
+    surface.DrawRect( x - 3, y - 3, 6, 6 )
+    surface.SetDrawColor( clickAim and COLOR_AIMED or color_white )
+    surface.DrawRect( x - 2, y - 2, 4, 4 )
+
+    if not clickAim then return end
+
+    local clickKey = string.upper( input.GetKeyName( MOUSE_LEFT ) or "MOUSE1" )
+    local text = string.format( GetPhrase( clickAim.open and "blackterio.aim.close" or "blackterio.aim.open" ), clickKey )
+
+    DrawHintLine( text, x, y + 12, color_white )
 end )

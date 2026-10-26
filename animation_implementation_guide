@@ -124,6 +124,23 @@ closesOnEnter = false -- this door stays open after the player enters through it
 aimToSit = true,
 ```
 
+## Click to interact (off by default, v102626)
+### Seated in any seat: hold the free look key (Glide's control, ALT by default), aim at a part with the center of the screen and click it. First person only.
+### While a part is aimed, the click is not sent to Glide (manual gear shifting, weapons).
+
+```
+-- In GetAnimationConfig: enable it for all the animations (default: false)
+clickToInteract = true,
+```
+
+```
+-- In GetAdvancedAnimationConfig, per animation (overrides the value above):
+{
+name = "glovebox",
+clickToInteract = false
+},
+```
+
 ## ConVars
 
 ```
@@ -132,6 +149,8 @@ blackterio_aimdoors_enable 1 -- (client) enable or disable the system for this p
 blackterio_aimdoors_hint 1 -- (client) show the [E] Open/Close hint (also in Glide's settings)
 blackterio_aimseats_enable 1 -- (client) enable or disable aim to sit for this player (also in Glide's settings)
 blackterio_aimseats_hint 1 -- (client) show the seat box and the [E] Sit hint (also in Glide's settings)
+blackterio_clickinteract_enable 1 -- (client) enable or disable click to interact for this player (also in Glide's settings)
+blackterio_clickinteract_hint 1 -- (client) show the crosshair and the click hint (also in Glide's settings)
 ```
 
 # All door sounds available on this addon
