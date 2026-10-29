@@ -370,17 +370,25 @@ A panel that shows a text that the player can edit with "Edit Properties" (right
 function ENT:SetupDataTables()
     BaseClass.SetupDataTables(self)
 
-    BlackterioExtraFunctions:AddEditableVars(self, {
-        category = "My Vehicle",   -- category in Edit Properties
-        order = 201,               -- position of the first entry (the next one uses order + 1)
-        destinationText = true,    -- ENT:GetDestinationText / SetDestinationText (text of the sign)
-        speedLimit = true,         -- ENT:GetSpeedLimit / SetSpeedLimit (km/h, see the speed limiter)
-        -- speedLimitMax = 500,    -- maximum value of the speed limit
-    })
+    if BlackterioExtraFunctions then
+        BlackterioExtraFunctions:AddEditableVars(self, {
+            category = "My Vehicle",   -- category in Edit Properties
+            order = 201,               -- position of the first entry (the next one uses order + 1)
+            destinationText = true,    -- ENT:GetDestinationText / SetDestinationText (text of the sign)
+            speedLimit = true,         -- ENT:GetSpeedLimit / SetSpeedLimit (km/h, see the speed limiter)
+            -- speedLimitMax = 500,    -- maximum value of the speed limit
+        })
+    else
+        -- Without Extra Functions: same vars in the same order, just not editable
+        self:NetworkVar("String", "DestinationText")
+        self:NetworkVar("Int", "SpeedLimit")
+    end
 end
 ```
 
-Ask only for the vars you use. Set the initial text with `self:SetDestinationText("CITY")` (for example in `CreateFeatures`).
+Extra Functions is optional (v102926-2): always check `BlackterioExtraFunctions` before using it, or the vehicle won't spawn without the addon. The `else` branch keeps `SetDestinationText` and `SetSpeedLimit` available. Declare only the vars you use, in both branches.
+
+Set the initial text with `self:SetDestinationText("CITY")` (for example in `CreateFeatures`).
 
 **2.** Turn it on in the config:
 
@@ -499,7 +507,12 @@ end
 function ENT:SetupDataTables()
     BaseClass.SetupDataTables(self)
 
-    BlackterioExtraFunctions:AddEditableVars(self, { category = "My Vehicle", order = 201, destinationText = true, speedLimit = true })
+    if BlackterioExtraFunctions then
+        BlackterioExtraFunctions:AddEditableVars(self, { category = "My Vehicle", order = 201, destinationText = true, speedLimit = true })
+    else
+        self:NetworkVar("String", "DestinationText")
+        self:NetworkVar("Int", "SpeedLimit")
+    end
 end
 
 -- In CreateFeatures (SERVER):
