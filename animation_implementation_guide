@@ -141,6 +141,29 @@ clickToInteract = false
 },
 ```
 
+## Click on the switches (off by default, v102926)
+### The ignition key, light switch, wiper switch, turn stalk, horn button and parking brake lever can be clicked too. Driver's seat only, same controls as above. Works even if the vehicle has no doors.
+### The flags go in the config you give to the extra functions (`ENT:GetExtraFunctionsConfig`), and each one also needs its function on (`lightSwitchClick` needs `lightSwitch = true`). See "Add support to your vehicle.md".
+
+```
+ignitionKeyClick = true,  -- click starts / stops the engine
+lightSwitchClick = true,  -- click cycles the headlights (off, low, high)
+wiperSwitchClick = true,  -- click turns the wipers on / off
+turnStalkClick = true,    -- left click: left signal, right click: right signal
+hornClick = true,         -- the horn sounds while the click is held
+handbrakeClick = true,    -- click applies / releases the parking brake
+```
+
+### The switches are tiny. If one is hard to aim at, change its size (with `developer 1` the boxes are drawn):
+
+```
+clickSwitchPadding = 0.2, -- units added to each side of the hitbox (default for all)
+clickSwitchRadius = 1,    -- box around the bone if it has no hitbox (default for all)
+clickSwitchSizes = { ignitionKey = { radius = 1.5 }, lightSwitch = { padding = 0.3 } }, -- per switch (optional)
+```
+
+### Vehicles that build their config inside `OnUpdateAnimations` have to move it to `ENT:GetExtraFunctionsConfig()` first, because the server reads the flags.
+
 ## ConVars
 
 ```

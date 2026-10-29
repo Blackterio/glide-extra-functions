@@ -42,6 +42,18 @@
       GetAnimationConfig().clickToInteract = true -> all the animations
       GetAdvancedAnimationConfig() entry:
         clickToInteract = bool -> this animation only (overrides the above)
+
+      The switches of the extra functions can be clicked too (driver's seat
+      only), each one off by default. Set them in ENT:GetExtraFunctionsConfig:
+        ignitionKeyClick -> click starts / stops the engine
+        lightSwitchClick -> click cycles the headlights
+        wiperSwitchClick -> click turns the wipers on / off
+        turnStalkClick   -> left click: left signal, right click: right signal
+        hornClick        -> the horn sounds while the click is held
+        handbrakeClick   -> click applies / releases the parking brake
+      The click doesn't move the pose parameters (the extra functions animate
+      them from the real state): it changes that state with the same Glide
+      actions the keys use.
 ------------------------------------------]]
 
 BlackterioCustomAnims = BlackterioCustomAnims or {}
@@ -110,6 +122,36 @@ local function IsClickEligible( config, animIndex )
     end
 
     return config.clickToInteract == true
+end
+
+-- Switches of the extra functions: click targets after the 9 animations.
+--   flag    = config key that turns the click on
+--   feature = config key of the function itself (its pose parameter has to be animated)
+--   pose    = key of config.poseParameters with the pose that moves the switch
+--   action  = Glide input action to tap (the others are handled in PressSwitch)
+local SWITCH_KEY, SWITCH_LIGHTS, SWITCH_WIPERS, SWITCH_STALK, SWITCH_HORN, SWITCH_HANDBRAKE = 10, 11, 12, 13, 14, 15
+local SWITCH_FIRST, SWITCH_LAST = SWITCH_KEY, SWITCH_HANDBRAKE
+
+local SWITCHES = {
+    [SWITCH_KEY]       = { flag = "ignitionKeyClick", feature = "ignitionKey", pose = "ignitionKey" },
+    [SWITCH_LIGHTS]    = { flag = "lightSwitchClick", feature = "lightSwitch", pose = "lightSwitch", action = "headlights" },
+    [SWITCH_WIPERS]    = { flag = "wiperSwitchClick", feature = "wiperSwitch", pose = "wiperSwitch", action = "toggle_wipers" },
+    [SWITCH_STALK]     = { flag = "turnStalkClick", feature = "turnStalk", pose = "turnStalk" },
+    [SWITCH_HORN]      = { flag = "hornClick", feature = "horn", pose = "horn" },
+    [SWITCH_HANDBRAKE] = { flag = "handbrakeClick", feature = "handbrake", pose = "handbrake" },
+}
+
+-- The config the vehicle gives to the extra functions (nil if it has none)
+local function GetExtraConfig( vehicle )
+    if vehicle.HasExtraFunctions == false or not vehicle.GetExtraFunctionsConfig then return nil end
+
+    return vehicle:GetExtraFunctionsConfig()
+end
+
+local function IsSwitchEligible( extraConfig, id )
+    local switch = SWITCHES[id]
+
+    return switch ~= nil and extraConfig ~= nil and extraConfig[switch.flag] == true and extraConfig[switch.feature] == true
 end
 
 --[[----------------------------------------
@@ -232,31 +274,124 @@ if SERVER then
         Click-to-interact: the seated player's client reports which part is
         under the crosshair (while the free look key is held), the click
         itself is read here, so it can also be kept away from Glide.
+        Targets 1-9 are animations, SWITCH_FIRST-SWITCH_LAST the switches
+        of the extra functions (driver's seat only, like their Glide actions).
     ]]
     util.AddNetworkString( NET_CLICK )
 
+    local SWITCH_COOLDOWN = 0.25
+
+    -- The check Glide runs on a real key press (other addons can veto the action)
+    local function CanInput( ply, vehicle, action, pressed )
+        return hook.Run( "Glide_CanPlayerVehicleInput", ply, vehicle, action, pressed ) ~= false
+    end
+
+    -- Input of the driver's seat, as if the key was pressed or released: the vehicle's
+    -- OnSeatInput (and hold actions) see it. IsClickBlocking skips it (the action could be bound to the mouse)
+    local function SendInput( vehicle, action, pressed )
+        vehicle.bcaSyntheticInput = true
+        vehicle:SetInputBool( 1, action, pressed )
+        vehicle.bcaSyntheticInput = nil
+    end
+
+    local function TapAction( ply, vehicle, action )
+        if not CanInput( ply, vehicle, action, true ) then return end
+
+        SendInput( vehicle, action, true )
+        SendInput( vehicle, action, false )
+    end
+
+    local function ReleaseHorn( ply )
+        local vehicle = ply.bcaHornVehicle
+        ply.bcaHornVehicle = nil
+
+        if IsValid( vehicle ) then
+            SendInput( vehicle, "horn", false )
+        end
+    end
+
+    local function PressSwitch( ply, vehicle, id, button )
+        if id == SWITCH_HORN then
+            -- Sounds until the click is released (PlayerButtonUp), the crosshair leaves or the player exits
+            if button == MOUSE_LEFT and not ply.bcaHornVehicle and CanInput( ply, vehicle, "horn", true ) then
+                ply.bcaHornVehicle = vehicle
+                SendInput( vehicle, "horn", true )
+            end
+
+            return
+        end
+
+        -- Only the turn stalk uses the right button
+        if button ~= MOUSE_LEFT and id ~= SWITCH_STALK then return end
+
+        local now = CurTime()
+        local nextTimes = vehicle.bcaSwitchNext
+
+        if not nextTimes then
+            nextTimes = {}
+            vehicle.bcaSwitchNext = nextTimes
+        end
+
+        if ( nextTimes[id] or 0 ) > now then return end
+        nextTimes[id] = now + SWITCH_COOLDOWN
+
+        if id == SWITCH_KEY then
+            if CanInput( ply, vehicle, "toggle_engine", true ) then
+                local state = vehicle:GetEngineState()
+
+                -- 1 starting and 2 running stop; 0 off and 3 shutting down start
+                if state == 1 or state == 2 then
+                    vehicle:TurnOff()
+                else
+                    vehicle:TurnOn()
+                end
+            end
+
+        elseif id == SWITCH_STALK then
+            TapAction( ply, vehicle, button == MOUSE_LEFT and "signal_left" or "signal_right" )
+
+        elseif id == SWITCH_HANDBRAKE then
+            -- Latched: Glide resets the driver's inputs on exit, which releases it
+            local apply = not vehicle:GetInputBool( 1, "handbrake" )
+
+            if CanInput( ply, vehicle, "handbrake", apply ) then
+                SendInput( vehicle, "handbrake", apply )
+            end
+
+        else
+            TapAction( ply, vehicle, SWITCHES[id].action )
+        end
+    end
+
     net.Receive( NET_CLICK, function( _, ply )
         local vehicle   = net.ReadEntity()
-        local animIndex = net.ReadUInt( 4 )
+        local animIndex = net.ReadUInt( 5 )
 
         if not IsValid( ply ) then return end
 
         ply.bcaClickTarget = nil
+        ReleaseHorn( ply )   -- the crosshair left the horn
         if animIndex == 0 then return end   -- the crosshair left the part
 
-        if not ply:Alive() or not IsValid( vehicle ) or not vehicle.IsGlideVehicle or not vehicle.GetAnimationConfig then return end
+        if not ply:Alive() or not IsValid( vehicle ) or not vehicle.IsGlideVehicle then return end
         if ply:GlideGetVehicle() ~= vehicle then return end
-        if not BlackterioCustomAnims.GetConfig then return end
 
-        local config = BlackterioCustomAnims.GetConfig( vehicle )
-        if not config or animIndex > config.count then return end
-        if not IsClickEligible( config, animIndex ) then return end
+        if animIndex >= SWITCH_FIRST then
+            if ply:GlideGetSeatIndex() ~= 1 then return end
+            if not IsSwitchEligible( GetExtraConfig( vehicle ), animIndex ) then return end
+        else
+            if not vehicle.GetAnimationConfig or not BlackterioCustomAnims.GetConfig then return end
+
+            local config = BlackterioCustomAnims.GetConfig( vehicle )
+            if not config or animIndex > config.count then return end
+            if not IsClickEligible( config, animIndex ) then return end
+        end
 
         ply.bcaClickTarget = { vehicle = vehicle, animIndex = animIndex }
     end )
 
     hook.Add( "PlayerButtonDown", "BlackterioCustomAnims.ClickToggle", function( ply, button )
-        if button ~= MOUSE_LEFT then return end
+        if button ~= MOUSE_LEFT and button ~= MOUSE_RIGHT then return end
 
         local target = ply.bcaClickTarget
         if not target then return end
@@ -266,17 +401,35 @@ if SERVER then
             return
         end
 
-        BlackterioCustomAnims.ToggleAnimation( target.vehicle, target.animIndex )
+        if target.animIndex >= SWITCH_FIRST then
+            PressSwitch( ply, target.vehicle, target.animIndex, button )
+        elseif button == MOUSE_LEFT then
+            BlackterioCustomAnims.ToggleAnimation( target.vehicle, target.animIndex )
+        end
+    end )
+
+    hook.Add( "PlayerButtonUp", "BlackterioCustomAnims.ClickRelease", function( ply, button )
+        if button == MOUSE_LEFT and ply.bcaHornVehicle then
+            ReleaseHorn( ply )
+        end
     end )
 
     hook.Add( "Glide_OnExitVehicle", "BlackterioCustomAnims.ClickClear", function( ply )
         ply.bcaClickTarget = nil
+        ReleaseHorn( ply )
     end )
 
-    -- Used by the OnSeatInput injected in Blackterio_Custom_Anims.lua: while a
-    -- seated player aims at a part, the Glide actions on the left mouse button
-    -- (manual gear shifting, weapons) don't fire. Releases always go through.
+    hook.Add( "PlayerDisconnected", "BlackterioCustomAnims.ClickClear", ReleaseHorn )
+
+    -- Used by the OnSeatInput injected in Blackterio_Custom_Anims.lua (and in
+    -- Blackterio_Vehicle_Controls.lua for vehicles without animations): while
+    -- a seated player aims at a part, the Glide actions on the mouse button
+    -- that clicks it (manual gear shifting, weapons) don't fire. The left
+    -- button clicks everything, the right one only the turn stalk.
+    -- Releases always go through.
     function BlackterioCustomAnims.IsClickBlocking( vehicle, seatIndex, action )
+        if vehicle.bcaSyntheticInput then return false end   -- the click itself (SendInput)
+
         local ply = vehicle:GetSeatDriver( seatIndex )
         if not IsValid( ply ) then return false end
 
@@ -287,7 +440,11 @@ if SERVER then
         if not settings then return false end
 
         for _, actions in pairs( settings.binds ) do
-            if actions[action] == MOUSE_LEFT then return true end
+            local button = actions[action]
+
+            if button == MOUSE_LEFT or ( button == MOUSE_RIGHT and target.animIndex == SWITCH_STALK ) then
+                return true
+            end
         end
 
         return false
@@ -495,6 +652,7 @@ local function BuildPartMap( vehicle, config, isEligible )
     -- (a mirror on a door belongs to the door; the rear wiper on the
     -- trunk belongs to the trunk unless the wiper itself is aimable).
     local parts = {}
+    local hasPart = {}   -- animIndex -> true once one of its hitboxes was found
 
     for hb = 0, hbCount - 1 do
         local bone = vehicle:GetHitBoxBone( hb, set )
@@ -513,6 +671,20 @@ local function BuildPartMap( vehicle, config, isEligible )
 
                 if mins then
                     parts[#parts + 1] = { animIndex = bestIndex, bone = bone, mins = mins, maxs = maxs }
+                    hasPart[bestIndex] = true
+                end
+            end
+        end
+    end
+
+    -- A switch whose bones have no hitbox (a key, for example): the box goes around the origin
+    -- of the lowest bone it moves (a parent always comes before its children), sized in SizeSwitchParts
+    for i, moved in pairs( movedBy ) do
+        if i >= SWITCH_FIRST and not hasPart[i] then
+            for bone = 1, boneCount - 1 do
+                if moved[bone] then
+                    parts[#parts + 1] = { animIndex = i, bone = bone, fallback = true }
+                    break
                 end
             end
         end
@@ -565,7 +737,80 @@ function BlackterioCustomAnims.GetAimPartMap( vehicle )
     return parts
 end
 
--- Same for the animations a seated player can click (click-to-interact).
+-- The animations and the switches a seated player can click, as one list for the
+-- part map: 1-9 are the animations, SWITCH_FIRST-SWITCH_LAST the switches.
+-- Cached on the entity (false = nothing to click).
+local function GetClickConfig( vehicle )
+    local cached = vehicle._bcaClickCfg
+    if cached ~= nil then return cached or nil end
+
+    local animConfig  = vehicle.GetAnimationConfig and BlackterioCustomAnims.GetConfig( vehicle )
+    local extraConfig = GetExtraConfig( vehicle )
+
+    local config = {
+        count           = SWITCH_LAST,
+        names           = {},
+        animOverrides   = animConfig and animConfig.animOverrides,
+        clickToInteract = animConfig and animConfig.clickToInteract,
+        extraConfig     = extraConfig
+    }
+
+    local any = false
+
+    if animConfig then
+        for i = 1, math.min( animConfig.count, SWITCH_FIRST - 1 ) do
+            config.names[i] = animConfig.names[i]
+            if IsClickEligible( config, i ) then any = true end
+        end
+    end
+
+    -- Only the switches that can be clicked get a name, that's what makes them eligible
+    for id, switch in pairs( SWITCHES ) do
+        if IsSwitchEligible( extraConfig, id ) then
+            config.names[id] = extraConfig.poseParameters[switch.pose]
+            any = true
+        end
+    end
+
+    vehicle._bcaClickCfg = any and config or false
+
+    return any and config or nil
+end
+
+local function IsClickPartEligible( config, animIndex )
+    if animIndex >= SWITCH_FIRST then return config.names[animIndex] ~= nil end
+
+    return IsClickEligible( config, animIndex )
+end
+
+-- The switches are tiny: grow their hitboxes, or make a box around the bone when it has none.
+-- clickSwitchPadding / clickSwitchRadius are the defaults, clickSwitchSizes[feature] overrides them per switch
+local function SizeSwitchParts( parts, extraConfig )
+    local sizes = extraConfig and extraConfig.clickSwitchSizes
+    local sized = {}
+
+    for i, part in ipairs( parts ) do
+        if part.animIndex < SWITCH_FIRST then
+            sized[i] = part
+        else
+            local size    = sizes and sizes[SWITCHES[part.animIndex].feature]
+            local padding = size and size.padding or extraConfig and extraConfig.clickSwitchPadding or 0.2
+            local radius  = size and size.radius or extraConfig and extraConfig.clickSwitchRadius or 1
+
+            if part.fallback then
+                local box = Vector( radius, radius, radius )
+                sized[i] = { animIndex = part.animIndex, bone = part.bone, mins = -box, maxs = box }
+            else
+                local grow = Vector( padding, padding, padding )
+                sized[i] = { animIndex = part.animIndex, bone = part.bone, mins = part.mins - grow, maxs = part.maxs + grow }
+            end
+        end
+    end
+
+    return sized
+end
+
+-- Same for the animations and switches a seated player can click (click-to-interact).
 -- It's a separate map: its animations (a window, a blind...) can take
 -- hitboxes that the aim-to-toggle map gives to the door.
 function BlackterioCustomAnims.GetClickPartMap( vehicle )
@@ -576,23 +821,18 @@ function BlackterioCustomAnims.GetClickPartMap( vehicle )
 
     if not BlackterioCustomAnims.GetConfig then return nil end
 
-    local config = BlackterioCustomAnims.GetConfig( vehicle )
-    local any = false
+    local config = GetClickConfig( vehicle )
 
-    for i = 1, config and config.count or 0 do
-        if IsClickEligible( config, i ) then
-            any = true
-            break
-        end
-    end
-
-    if not any then
+    if not config then
         vehicle._bcaClickParts = false
         return nil
     end
 
-    parts = GetPartMap( vehicle, config, IsClickEligible, "click|" )
-    if parts then vehicle._bcaClickParts = parts end
+    parts = GetPartMap( vehicle, config, IsClickPartEligible, "click|" )
+    if not parts then return nil end   -- bones not ready yet, retry later
+
+    parts = SizeSwitchParts( parts, config.extraConfig )
+    vehicle._bcaClickParts = parts
 
     return parts
 end
@@ -989,7 +1229,8 @@ local CLICK_SEND_INTERVAL = 0.1   -- seconds between reports to the server
 
 local cvarClickEnable, cvarClickHint
 local clickHeld = false   -- free look key down, first person, a clickable vehicle
-local clickAim            -- { animIndex, open } while the crosshair is on a part
+local clickAim            -- { vehicle, animIndex, open } while the crosshair is on a part
+local clickVehicle, clickParts   -- vehicle and parts that can be clicked while clickHeld (developer boxes)
 local clickSent = 0       -- animation last reported to the server (0 = none)
 local nextClickSend = 0
 
@@ -1001,14 +1242,15 @@ local function IsClickKeyDown()
     return key ~= nil and key > KEY_NONE and input.IsKeyDown( key )
 end
 
--- Closest clickable part under the center of the screen: { animIndex, open }
-local function FindClickAimed( vehicle, parts )
+-- Closest clickable part under the center of the screen: { vehicle, animIndex, open }
+-- (the switches only count for the driver)
+local function FindClickAimed( vehicle, parts, isDriver )
     local start = EyePos()
     local delta = EyeAngles():Forward() * CLICK_RANGE
     local best, bestDist
 
     for _, part in ipairs( parts ) do
-        local m = vehicle:GetBoneMatrix( part.bone )
+        local m = ( isDriver or part.animIndex < SWITCH_FIRST ) and vehicle:GetBoneMatrix( part.bone )
 
         if m then
             local hit = util.IntersectRayWithOBB( start, delta, m:GetTranslation(), m:GetAngles(), part.mins, part.maxs )
@@ -1029,13 +1271,18 @@ local function FindClickAimed( vehicle, parts )
     local tr = util.TraceLine( { start = start, endpos = start + delta, mask = MASK_SOLID_BRUSHONLY } )
     if tr.Hit and bestDist > tr.Fraction * CLICK_RANGE + OCCLUSION_SLACK then return nil end
 
-    return { animIndex = best.animIndex, open = BlackterioCustomAnims.GetAnimationState( vehicle, best.animIndex ) }
+    return {
+        vehicle   = vehicle,
+        animIndex = best.animIndex,
+        open      = best.animIndex < SWITCH_FIRST and BlackterioCustomAnims.GetAnimationState( vehicle, best.animIndex )
+    }
 end
 
 hook.Add( "Think", "BlackterioCustomAnims.ClickTrack", function()
     cvarClickEnable = cvarClickEnable or GetConVar( "blackterio_clickinteract_enable" )
 
     clickHeld, clickAim = false, nil
+    clickVehicle, clickParts = nil, nil
 
     local ply = LocalPlayer()
     local vehicle = IsValid( ply ) and ply:Alive() and ply:GlideGetVehicle() or NULL
@@ -1044,11 +1291,12 @@ hook.Add( "Think", "BlackterioCustomAnims.ClickTrack", function()
     if inFirstPerson and ( not cvarClickEnable or cvarClickEnable:GetBool() )
         and IsClickKeyDown() and not vgui.CursorVisible() and not gui.IsGameUIVisible() then
 
-        local parts = vehicle.GetAnimationConfig and BlackterioCustomAnims.GetClickPartMap( vehicle )
+        local parts = ( vehicle.GetAnimationConfig or vehicle.GetExtraFunctionsConfig ) and BlackterioCustomAnims.GetClickPartMap( vehicle )
 
         if parts then
             clickHeld = true
-            clickAim  = FindClickAimed( vehicle, parts )
+            clickVehicle, clickParts = vehicle, parts
+            clickAim  = FindClickAimed( vehicle, parts, ply:GlideGetSeatIndex() == 1 )
         end
     end
 
@@ -1061,10 +1309,38 @@ hook.Add( "Think", "BlackterioCustomAnims.ClickTrack", function()
 
         net.Start( NET_CLICK )
         net.WriteEntity( vehicle )
-        net.WriteUInt( animIndex, 4 )
+        net.WriteUInt( animIndex, 5 )
         net.SendToServer()
     end
 end )
+
+-- Phrase of each switch's hint (the key also changes with the engine, the stalk has two)
+local SWITCH_PHRASES = {
+    [SWITCH_LIGHTS]    = "blackterio.click.headlights",
+    [SWITCH_WIPERS]    = "blackterio.click.wipers",
+    [SWITCH_HORN]      = "blackterio.click.horn",
+    [SWITCH_HANDBRAKE] = "blackterio.click.handbrake"
+}
+
+local function GetClickHint( aim, clickKey )
+    local id = aim.animIndex
+
+    if id < SWITCH_FIRST then
+        return string.format( GetPhrase( aim.open and "blackterio.aim.close" or "blackterio.aim.open" ), clickKey )
+    end
+
+    if id == SWITCH_STALK then
+        return string.format( GetPhrase( "blackterio.click.signals" ), clickKey, string.upper( input.GetKeyName( MOUSE_RIGHT ) or "MOUSE2" ) )
+    end
+
+    if id == SWITCH_KEY then
+        local state = IsValid( aim.vehicle ) and aim.vehicle:GetEngineState() or 0
+
+        return string.format( GetPhrase( ( state == 1 or state == 2 ) and "blackterio.click.engine_stop" or "blackterio.click.engine_start" ), clickKey )
+    end
+
+    return string.format( GetPhrase( SWITCH_PHRASES[id] ), clickKey )
+end
 
 hook.Add( "HUDPaint", "BlackterioCustomAnims.ClickHint", function()
     if not clickHeld then return end
@@ -1083,7 +1359,22 @@ hook.Add( "HUDPaint", "BlackterioCustomAnims.ClickHint", function()
     if not clickAim then return end
 
     local clickKey = string.upper( input.GetKeyName( MOUSE_LEFT ) or "MOUSE1" )
-    local text = string.format( GetPhrase( clickAim.open and "blackterio.aim.close" or "blackterio.aim.open" ), clickKey )
+    DrawHintLine( GetClickHint( clickAim, clickKey ), x, y + 12, color_white )
+end )
 
-    DrawHintLine( text, x, y + 12, color_white )
+-- developer 1: boxes of everything that can be clicked, the aimed one in green
+hook.Add( "PostDrawTranslucentRenderables", "BlackterioCustomAnims.ClickDebug", function( depth, skybox )
+    if depth or skybox then return end
+    if not clickHeld or not IsValid( clickVehicle ) or cvarDeveloper:GetInt() < 1 then return end
+
+    local isDriver = LocalPlayer():GlideGetSeatIndex() == 1
+
+    for _, part in ipairs( clickParts ) do
+        local m = ( isDriver or part.animIndex < SWITCH_FIRST ) and clickVehicle:GetBoneMatrix( part.bone )
+
+        if m then
+            local aimed = clickAim and clickAim.animIndex == part.animIndex
+            render.DrawWireframeBox( m:GetTranslation(), m:GetAngles(), part.mins, part.maxs, aimed and COLOR_AIMED or COLOR_PART, true )
+        end
+    end
 end )

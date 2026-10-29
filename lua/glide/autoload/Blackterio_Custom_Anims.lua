@@ -179,6 +179,7 @@ function BlackterioCustomAnims.InvalidateConfig( vehicle )
     -- Caches of the aim-to-toggle system (Blackterio_Custom_Anims_Aim.lua)
     vehicle._bcaAimParts = nil
     vehicle._bcaClickParts = nil
+    vehicle._bcaClickCfg = nil
     vehicle.bcaHasEnterDoor = nil
 end
 

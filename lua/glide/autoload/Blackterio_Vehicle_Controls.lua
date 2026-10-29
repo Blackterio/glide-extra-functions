@@ -96,6 +96,25 @@ if SERVER then
             end
         end
 
+        -- Click-to-interact on the switches (Blackterio_Custom_Anims_Aim.lua): while the driver aims at one,
+        -- the click is kept away from Glide. Vehicles with GetAnimationConfig get this from Custom Anims.
+        if not ent.GetAnimationConfig and (config.ignitionKeyClick or config.lightSwitchClick or config.wiperSwitchClick
+            or config.turnStalkClick or config.hornClick or config.handbrakeClick) then
+            local origOnSeatInput = ent.OnSeatInput
+
+            ent.OnSeatInput = function( self, seatIndex, action, pressed )
+                if pressed and BlackterioCustomAnims and BlackterioCustomAnims.IsClickBlocking
+                    and BlackterioCustomAnims.IsClickBlocking( self, seatIndex, action ) then
+                    return true
+                end
+
+                if origOnSeatInput then
+                    return origOnSeatInput( self, seatIndex, action, pressed )
+                end
+                return false
+            end
+        end
+
         if config.speedLimiter then
             local origEngineThink = ent.EngineThink
 

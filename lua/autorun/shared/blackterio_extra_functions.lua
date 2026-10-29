@@ -13,7 +13,7 @@
 -- hit the guard and your changes won't apply until the next restart.
 -- VERSION is the date of the release as YYMMDD, so the guard orders the
 -- versions across years. It's shown as vMMDDYY (261026 = v102626).
-local VERSION = 261026
+local VERSION = 261029
 
 if BlackterioExtraFunctions and ( BlackterioExtraFunctions._version or 0 ) >= VERSION then return end
 
@@ -46,6 +46,15 @@ BlackterioExtraFunctions.DefaultConfig = {
     engineAnims = false, -- List of looping engine animations, each one { pose = "pose parameter", speed = cycles per engine revolution }
     destinationSign = false, -- Editable LED destination sign. Call BlackterioExtraFunctions:DrawDestinationSign from ENT:Draw
     speedLimiter = false, -- Electronic speed limiter. Server side needs ENT:GetExtraFunctionsConfig (see Blackterio_Vehicle_Controls.lua)
+
+    -- Click to interact with the switches (all false by default). The driver holds the free look key, aims at the switch and clicks.
+    -- Each one also needs its function on (lightSwitchClick needs lightSwitch...) and ENT:GetExtraFunctionsConfig (see Blackterio_Custom_Anims_Aim.lua)
+    ignitionKeyClick = false, -- Click starts / stops the engine
+    lightSwitchClick = false, -- Click cycles the headlights (off, low, high)
+    wiperSwitchClick = false, -- Click turns the wipers on / off
+    turnStalkClick = false, -- Left click: left signal, right click: right signal
+    hornClick = false, -- The horn sounds while the click is held
+    handbrakeClick = false, -- Click applies / releases the parking brake (while the driver is seated)
 
     -- Pedals lerp
     pedalLerpRate = 0.2,
@@ -91,6 +100,15 @@ BlackterioExtraFunctions.DefaultConfig = {
     ignitionLerpRate = 0.2,
     lightSwitchLerpRate = 0.2,
     wiperSwitchLerpRate = 0.2,
+
+    -- Click to interact: the switches are tiny, so their hitbox grows by clickSwitchPadding units on each side.
+    -- A switch whose bone has no hitbox gets a box of clickSwitchRadius units around the bone's origin instead.
+    -- clickSwitchSizes overrides both per switch, by the name of its function:
+    --   clickSwitchSizes = { ignitionKey = { radius = 1.5 }, lightSwitch = { padding = 0.3 } }
+    -- (ignitionKey, lightSwitch, wiperSwitch, turnStalk, horn, handbrake)
+    clickSwitchPadding = 0.2,
+    clickSwitchRadius = 1,
+    clickSwitchSizes = {},
 
     -- Digital Speedometer configuration
     digitalSpeedoPos = Vector(0, 0, 0), -- Text position in vehicle

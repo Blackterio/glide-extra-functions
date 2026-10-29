@@ -21,6 +21,7 @@
 - Open/close doors, hood and trunk by aiming at them with the use key (LVS style, compatible with Glide // Car Keys)
 - Sit in a specific seat by aiming at it with the use key (optional, per vehicle)
 - Open/close doors and other parts from your seat: hold the free look key and click them (optional, per vehicle)
+- Click the ignition key, light switch, wiper switch, turn stalk, horn and parking brake lever from the driver's seat (optional, per switch)
 - Translated to English, Spanish, French, Portuguese, Russian, Turkish, Ukrainian and Chinese
 ```
 

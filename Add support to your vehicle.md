@@ -431,6 +431,38 @@ speedLimit = 0,          -- fixed limit in km/h if the vehicle doesn't have the 
 - The limit is in km/h **exactly as Glide's HUD and the Wire speedometer show them**, not real km/h.
 - A vehicle that doesn't use `speedLimiter` is never limited.
 
+## Click on the switches (v102926)
+
+The driver can hold the free look key (ALT by default), aim at a switch with the center of the screen and click it. First person only. **All off by default**: turn on only what your vehicle has.
+
+```
+ignitionKeyClick = true, -- click starts / stops the engine
+lightSwitchClick = true, -- click cycles the headlights (off, low, high)
+wiperSwitchClick = true, -- click turns the wipers on / off
+turnStalkClick = true,   -- left click: left signal, right click: right signal
+hornClick = true,        -- the horn sounds while the click is held
+handbrakeClick = true,   -- click applies / releases the parking brake
+
+clickSwitchPadding = 0.2, -- units added to each side of the switch's hitbox (they are tiny)
+clickSwitchRadius = 1,    -- half size of the box around the bone if the switch has no hitbox
+
+-- Optional: a different size for one switch, by the name of its function
+-- (ignitionKey, lightSwitch, wiperSwitch, turnStalk, horn, handbrake)
+clickSwitchSizes = {
+    ignitionKey = { radius = 1.5 },
+    lightSwitch = { padding = 0.3 },
+},
+```
+
+Turn on `developer 1`, hold the free look key inside the vehicle and the boxes are drawn (the aimed one in green), so you can calibrate them in game.
+
+- Each flag also needs its function on: `lightSwitchClick` needs `lightSwitch = true`, `turnStalkClick` needs `turnStalk = true`, and so on.
+- The vehicle has to define `ENT:GetExtraFunctionsConfig()` (see above), because the server reads the flags.
+- The click does not move the pose parameters: it changes the real state (engine, lights...) with the same Glide actions as the keys, and the animation follows by itself. So don't animate those poses with anything else.
+- The switch is found like the doors: the bones that its pose parameter moves, and the hitboxes of those bones (studiomdl creates one per bone when the QC has no `$hbox`). A bone without hitbox gets a small box around its origin.
+- The parking brake stays applied while the driver is seated: Glide releases it when they exit, like the key.
+- Turn it off for a player with `blackterio_clickinteract_enable 0` (the same setting of the doors).
+
 ## Full example (version 3)
 
 A vehicle with the controls, belts, destination sign and speed limiter:
