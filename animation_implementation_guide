@@ -162,6 +162,8 @@ clickSwitchRadius = 1,    -- box around the bone if it has no hitbox (default fo
 clickSwitchSizes = { ignitionKey = { radius = 1.5 }, lightSwitch = { padding = 0.3 } }, -- per switch (optional)
 ```
 
+### Jigglebones (a dangling dice, a visor) are ignored when the switches are detected (v102926-3).
+
 ### Vehicles that build their config inside `OnUpdateAnimations` have to move it to `ENT:GetExtraFunctionsConfig()` first, because the server reads the flags.
 
 ## ConVars

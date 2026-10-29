@@ -467,7 +467,7 @@ Turn on `developer 1`, hold the free look key inside the vehicle and the boxes a
 - Each flag also needs its function on: `lightSwitchClick` needs `lightSwitch = true`, `turnStalkClick` needs `turnStalk = true`, and so on.
 - The vehicle has to define `ENT:GetExtraFunctionsConfig()` (see above), because the server reads the flags.
 - The click does not move the pose parameters: it changes the real state (engine, lights...) with the same Glide actions as the keys, and the animation follows by itself. So don't animate those poses with anything else.
-- The switch is found like the doors: the bones that its pose parameter moves, and the hitboxes of those bones (studiomdl creates one per bone when the QC has no `$hbox`). A bone without hitbox gets a small box around its origin.
+- The switch is found like the doors: the bones that its pose parameter moves, and the hitboxes of those bones (studiomdl creates one per bone when the QC has no `$hbox`). A bone without hitbox gets a small box around its origin. Jigglebones (a dangling dice, a visor) are ignored (v102926-3).
 - The parking brake stays applied while the driver is seated: Glide releases it when they exit, like the key.
 - Turn it off for a player with `blackterio_clickinteract_enable 0` (the same setting of the doors).
 

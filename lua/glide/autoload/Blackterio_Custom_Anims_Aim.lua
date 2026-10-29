@@ -573,9 +573,16 @@ local SCAN_INTERVAL   = 0.25
 local OCCLUSION_SLACK = 12     -- a closed door's hitbox sits slightly inside the collision hull
 local MOVE_EPSILON    = 0.05   -- units
 local ANGLE_EPSILON   = 0.1    -- degrees
+local NOISE_MARGIN    = 3      -- times a bone's noise that the animation has to move it
+
+local PART_MAP_TRIES = 6      -- builds before the last one is accepted as it is
+local PART_MAP_RETRY = 0.25   -- seconds between builds
 
 -- [model|names] -> list of { animIndex, bone, mins, maxs }
 local partMapCache = {}
+
+-- [model|names] -> { signature, tries, nextTry } of the build waiting for a second, equal one
+local pendingMaps = {}
 
 local function SnapshotBones( vehicle, boneCount )
     vehicle:InvalidateBoneCache()
@@ -593,15 +600,17 @@ local function SnapshotBones( vehicle, boneCount )
     return snap
 end
 
-local function BoneMoved( a, b )
-    if not a or not b then return false end
-    if a[1]:DistToSqr( b[1] ) > MOVE_EPSILON * MOVE_EPSILON then return true end
+-- How far a bone moved between two snapshots, in multiples of the movement epsilons
+local function BoneMovement( a, b )
+    if not a or not b then return 0 end
+
+    local movement = a[1]:Distance( b[1] ) / MOVE_EPSILON
 
     for k = 1, 3 do
-        if math.abs( math.AngleDifference( a[2][k], b[2][k] ) ) > ANGLE_EPSILON then return true end
+        movement = math.max( movement, math.abs( math.AngleDifference( a[2][k], b[2][k] ) ) / ANGLE_EPSILON )
     end
 
-    return false
+    return movement
 end
 
 -- isEligible picks the animations that get hitboxes (default: aim-to-toggle)
@@ -622,11 +631,17 @@ local function BuildPartMap( vehicle, config, isEligible )
         local poseName = config.names[i]
 
         if poseName and isEligible( config, i ) and vehicle:LookupPoseParameter( poseName ) >= 0 then
+            -- Each pose is captured twice. A jigglebone keeps moving between captures of the
+            -- same pose (noise) and only sometimes gets over the epsilon, so a bone counts as
+            -- moved by the animation only if even its smallest closed -> open difference
+            -- is well above its noise
             vehicle:SetPoseParameter( poseName, 0 )
-            local closed = SnapshotBones( vehicle, boneCount )
+            local closed  = SnapshotBones( vehicle, boneCount )
+            local closed2 = SnapshotBones( vehicle, boneCount )
 
             vehicle:SetPoseParameter( poseName, 1 )
-            local open = SnapshotBones( vehicle, boneCount )
+            local open  = SnapshotBones( vehicle, boneCount )
+            local open2 = SnapshotBones( vehicle, boneCount )
 
             -- UpdateAnimations writes the real value again next frame anyway
             vehicle:SetPoseParameter( poseName, lerp and lerp.poseValues[i] or 0 )
@@ -636,7 +651,13 @@ local function BuildPartMap( vehicle, config, isEligible )
             local moved = { n = 0 }
 
             for bone = 0, boneCount - 1 do
-                if BoneMoved( closed[bone], open[bone] ) then
+                local noise  = math.max( BoneMovement( closed[bone], closed2[bone] ), BoneMovement( open[bone], open2[bone] ) )
+                local signal = math.min(
+                    BoneMovement( closed[bone], open[bone] ), BoneMovement( closed[bone], open2[bone] ),
+                    BoneMovement( closed2[bone], open[bone] ), BoneMovement( closed2[bone], open2[bone] )
+                )
+
+                if signal > 1 and signal > NOISE_MARGIN * noise then
                     moved[bone] = true
                     moved.n = moved.n + 1
                 end
@@ -693,6 +714,34 @@ local function BuildPartMap( vehicle, config, isEligible )
     return parts
 end
 
+-- Same parts in any order, as a string
+local function PartMapSignature( parts )
+    local tokens = {}
+
+    for i, part in ipairs( parts ) do
+        tokens[i] = part.animIndex .. ":" .. part.bone
+    end
+
+    table.sort( tokens )
+
+    return table.concat( tokens, "," )
+end
+
+-- Every eligible switch got at least one part
+local function SwitchesHaveParts( config, isEligible, parts )
+    local hasPart = {}
+
+    for _, part in ipairs( parts ) do
+        hasPart[part.animIndex] = true
+    end
+
+    for i = SWITCH_FIRST, config.count do
+        if config.names[i] and isEligible( config, i ) and not hasPart[i] then return false end
+    end
+
+    return true
+end
+
 local function GetPartMap( vehicle, config, isEligible, keyPrefix )
     isEligible = isEligible or IsAimEligible
 
@@ -703,14 +752,32 @@ local function GetPartMap( vehicle, config, isEligible, keyPrefix )
     end
 
     local parts = partMapCache[key]
+    if parts ~= nil then return parts end
 
-    if parts == nil then
-        parts = BuildPartMap( vehicle, config, isEligible )
-        if not parts then return nil end   -- not cached: retry on a later frame
+    local pending = pendingMaps[key]
+    local now     = RealTime()
+
+    if pending and now < pending.nextTry then return nil end
+
+    parts = BuildPartMap( vehicle, config, isEligible )
+    if not parts then return nil end   -- not cached: retry on a later frame
+
+    -- The map is cached once two builds in a row agree and every switch found a part.
+    -- A bad build (bones not ready, a jigglebone still settling) would otherwise stick
+    -- to the model until the game restarts. After PART_MAP_TRIES the last build is kept.
+    local signature = PartMapSignature( parts )
+    local tries     = pending and pending.tries + 1 or 1
+
+    if tries >= PART_MAP_TRIES or ( pending and pending.signature == signature and SwitchesHaveParts( config, isEligible, parts ) ) then
         partMapCache[key] = parts
+        pendingMaps[key]  = nil
+
+        return parts
     end
 
-    return parts
+    pendingMaps[key] = { signature = signature, tries = tries, nextTry = now + PART_MAP_RETRY }
+
+    return nil
 end
 
 -- Returns the aimable parts of a vehicle (also used for debugging/testing).
