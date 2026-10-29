@@ -27,5 +27,7 @@
 
 ### You can see an animation implementation guide for your vehicles in animation_implementation_guide.md
 
+### A full example vehicle that uses every feature is in examples/example_full_vehicle.lua
+
 #### Users need to subscribe to this addon if they want to see these extra functions, in case they don't choose to do it, they simply won't see anything of these features.
 
