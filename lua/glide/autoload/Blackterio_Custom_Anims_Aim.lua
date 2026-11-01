@@ -64,6 +64,10 @@ local NET_SEAT  = "blackterio_seat_aim"
 local NET_CLICK = "blackterio_anim_click"
 local USE_RANGE = 90
 
+-- Replicated: clients need it to stop intercepting [E] on doors when it is 0
+local cvarRequireDoor = CreateConVar( "blackterio_aimdoors_require_door", "1", { FCVAR_ARCHIVE, FCVAR_NOTIFY, FCVAR_REPLICATED },
+    "Vehicles with animated doors can only be entered through an open door: 0 = [E] anywhere enters and doors can't be opened by aiming (Glide default), 1 = door required" )
+
 -- Aim box of a seat in the seat's local space (a seated player faces +Y):
 -- cushion and backrest of a typical seat
 local SEAT_MINS = Vector( -11, -11, 0 )
@@ -180,6 +184,7 @@ if SERVER then
 
     net.Receive( NET_AIM, function( _, ply )
         if not IsValid( ply ) or not ply:Alive() or ply:InVehicle() then return end
+        if not cvarRequireDoor:GetBool() then return end
 
         local now = CurTime()
         if ( ply.bcaNextAimRequest or 0 ) > now then return end
@@ -511,9 +516,6 @@ if SERVER then
         Exempt: players in noclip, players who disabled the aim system on
         their client, and vehicles without an enterable door.
     ]]
-    local cvarRequireDoor = CreateConVar( "blackterio_aimdoors_require_door", "1", { FCVAR_ARCHIVE, FCVAR_NOTIFY },
-        "Vehicles with animated doors can only be entered through an open door: 0 = [E] anywhere enters (Glide default), 1 = door required" )
-
     -- Server-side check: an aimable piece with aimEnter whose pose parameter exists on the model
     local function HasEnterDoor( vehicle, config )
         local cached = vehicle.bcaHasEnterDoor
@@ -1051,6 +1053,11 @@ local function IsAimEnabled()
     return not cvarEnable or cvarEnable:GetBool()
 end
 
+-- Aiming at doors also needs the server rule (blackterio_aimdoors_require_door)
+local function IsDoorAimActive()
+    return IsAimEnabled() and cvarRequireDoor:GetBool()
+end
+
 local function IsSeatAimEnabled()
     cvarSeatEnable = cvarSeatEnable or GetConVar( "blackterio_aimseats_enable" )
     return not cvarSeatEnable or cvarSeatEnable:GetBool()
@@ -1109,7 +1116,7 @@ hook.Add( "PlayerBindPress", "BlackterioCustomAnims.AimUse", function( ply, bind
     if not string.find( bind, "+use", 1, true ) then return end
     if ply:InVehicle() then return end
 
-    local doors, seats = IsAimEnabled(), IsSeatAimEnabled()
+    local doors, seats = IsDoorAimActive(), IsSeatAimEnabled()
     if not doors and not seats then return end
 
     local aimed = FindAimed( ply, true, doors, seats )
@@ -1155,7 +1162,7 @@ hook.Add( "Think", "BlackterioCustomAnims.AimTrack", function()
     cvarHint     = cvarHint or GetConVar( "blackterio_aimdoors_hint" )
     cvarSeatHint = cvarSeatHint or GetConVar( "blackterio_aimseats_hint" )
 
-    local doors, seats = IsAimEnabled(), IsSeatAimEnabled()
+    local doors, seats = IsDoorAimActive(), IsSeatAimEnabled()
     local doorHint = doors and cvarHint and cvarHint:GetBool()
     local seatHint = seats and cvarSeatHint and cvarSeatHint:GetBool()
     local wantDev  = cvarDeveloper:GetInt() > 0

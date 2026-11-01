@@ -169,7 +169,7 @@ clickSwitchSizes = { ignitionKey = { radius = 1.5 }, lightSwitch = { padding = 0
 ## ConVars
 
 ```
-blackterio_aimdoors_require_door 1 -- (server) vehicles with doors can only be entered through an open door
+blackterio_aimdoors_require_door 1 -- (server) vehicles with doors can only be entered through an open door (0 = [E] enters anywhere and doors can't be opened by aiming)
 blackterio_aimdoors_enable 1 -- (client) enable or disable the system for this player (also in Glide's settings)
 blackterio_aimdoors_hint 1 -- (client) show the [E] Open/Close hint (also in Glide's settings)
 blackterio_aimseats_enable 1 -- (client) enable or disable aim to sit for this player (also in Glide's settings)
