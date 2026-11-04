@@ -13,7 +13,7 @@
 -- hit the guard and your changes won't apply until the next restart.
 -- VERSION is the date of the release as YYMMDD, so the guard orders the
 -- versions across years. It's shown as vMMDDYY (261026 = v102626).
-local VERSION = 261029
+local VERSION = 261104
 
 if BlackterioExtraFunctions and ( BlackterioExtraFunctions._version or 0 ) >= VERSION then return end
 
@@ -167,6 +167,11 @@ BlackterioExtraFunctions.DefaultConfig = {
     destinationSignFont = "BlackterioDefaultDestinationSign", -- Custom fonts must be created by the vehicle author with surface.CreateFont
     destinationSignColor = Color(255, 160, 20),
     destinationSignBackground = Color(8, 6, 2, 255),
+    destinationSignShowBackground = true, -- false = no black rectangle (the dot matrix grid is hidden too)
+    destinationSignLineFont = "BlackterioDefaultDestinationSign", -- Font of the line number (DestinationLine network var)
+    destinationSignLineColor = false, -- false = same as destinationSignColor
+    destinationSignLineWidth = 0, -- Width of the line number box in sign pixels. 0 = fits the number
+    destinationSignLinePadding = 16, -- Space around the number when destinationSignLineWidth is 0
     destinationSignGridColor = Color(0, 0, 0, 150), -- Dot matrix look. Alpha 0 or destinationSignGridSize 0 = no grid
     destinationSignGridSize = 6,
     destinationSignMarqueeSpeed = 120, -- Pixels per second when the text doesn't fit
@@ -1002,8 +1007,9 @@ if CLIENT then
             return
         end
 
-        local text = vehicle:GetDestinationText()
-        if not text or text == "" then return end
+        local text = vehicle:GetDestinationText() or ""
+        local lineNumber = isfunction(vehicle.GetDestinationLine) and vehicle:GetDestinationLine() or ""
+        if text == "" and lineNumber == "" then return end
 
         local drawDist = config.destinationSignDrawDistance
         if EyePos():DistToSqr(vehicle:GetPos()) > drawDist * drawDist then return end
@@ -1011,50 +1017,122 @@ if CLIENT then
         local w, h = config.destinationSignWidth, config.destinationSignHeight
         local pos = vehicle:LocalToWorld(config.destinationSignPos)
         local ang = vehicle:LocalToWorldAngles(config.destinationSignAng)
+        local showBackground = config.destinationSignShowBackground
+
+        -- Text color: the one picked in Edit Properties, or the config color if none was picked (0, 0, 0)
+        local textColor = config.destinationSignColor
+        local tr, tg, tb = textColor.r, textColor.g, textColor.b
+
+        if isfunction(vehicle.GetDestinationColor) then
+            local picked = vehicle:GetDestinationColor()
+
+            if picked.x > 0 or picked.y > 0 or picked.z > 0 then
+                tr, tg, tb = picked.x * 255, picked.y * 255, picked.z * 255
+            end
+        end
 
         cam.Start3D2D(pos, ang, config.destinationSignScale)
-            surface.SetDrawColor(config.destinationSignBackground)
-            surface.DrawRect(0, 0, w, h)
+            if showBackground then
+                surface.SetDrawColor(config.destinationSignBackground)
+                surface.DrawRect(0, 0, w, h)
+            end
+
+            -- Line number: fixed on the left, the destination uses the rest of the sign
+            local areaX, areaW = 0, w
+
+            if lineNumber ~= "" then
+                local lineFont = config.destinationSignLineFont
+                surface.SetFont(lineFont)
+                local lw, lh = surface.GetTextSize(lineNumber)
+                local pad = config.destinationSignLinePadding
+                local boxW = config.destinationSignLineWidth > 0 and config.destinationSignLineWidth or (lw + pad * 2)
+
+                local lineColor = config.destinationSignLineColor
+
+                if lineColor then
+                    surface.SetTextColor(lineColor)
+                else
+                    surface.SetTextColor(tr, tg, tb, 255)
+                end
+                surface.SetTextPos((boxW - lw) * 0.5, (h - lh) * 0.5)
+                surface.DrawText(lineNumber)
+
+                areaX, areaW = boxW, w - boxW
+            end
+
+            -- Destination: lines are separated by "|" and centered on the area
+            local lines = {}
+
+            for part in string.gmatch(text, "[^|]+") do
+                part = string.Trim(part)
+                if part ~= "" then lines[#lines + 1] = part end
+            end
 
             surface.SetFont(config.destinationSignFont)
-            local tw, th = surface.GetTextSize(text)
-            local x
+            surface.SetTextColor(tr, tg, tb, 255)
 
-            if tw <= w - 20 then
-                x = (w - tw) * 0.5
-            else
-                -- Marquee: the text scrolls from right to left
-                local span = tw + w
-                x = w - (CurTime() * config.destinationSignMarqueeSpeed) % span
-            end
+            if #lines == 1 then
+                local line = lines[1]
+                local tw, th = surface.GetTextSize(line)
+                local x
 
-            surface.SetTextColor(config.destinationSignColor)
-            surface.SetTextPos(x, (h - th) * 0.5)
-
-            -- Only draw the part of the text inside the sign
-            if x >= 0 and x + tw <= w then
-                surface.DrawText(text)
-            else
-                local cx = x
-
-                for _, c in utf8.codes(text) do
-                    local ch = utf8.char(c)
-                    local cw = surface.GetTextSize(ch)
-
-                    if cx >= 0 and cx + cw <= w then
-                        surface.SetTextPos(cx, (h - th) * 0.5)
-                        surface.DrawText(ch)
-                    end
-
-                    cx = cx + cw
+                if tw <= areaW - 20 then
+                    x = areaX + (areaW - tw) * 0.5
+                else
+                    -- Marquee: the text scrolls from right to left
+                    local span = tw + areaW
+                    x = areaX + areaW - (CurTime() * config.destinationSignMarqueeSpeed) % span
                 end
+
+                -- Only draw the part of the text inside the area
+                if x >= areaX and x + tw <= areaX + areaW then
+                    surface.SetTextPos(x, (h - th) * 0.5)
+                    surface.DrawText(line)
+                else
+                    local cx = x
+
+                    for _, c in utf8.codes(line) do
+                        local ch = utf8.char(c)
+                        local cw = surface.GetTextSize(ch)
+
+                        if cx >= areaX and cx + cw <= areaX + areaW then
+                            surface.SetTextPos(cx, (h - th) * 0.5)
+                            surface.DrawText(ch)
+                        end
+
+                        cx = cx + cw
+                    end
+                end
+            elseif #lines > 1 then
+                -- Several lines: all the same size, shrunk to fit the height and the widest line (no marquee)
+                local _, th = surface.GetTextSize("A")
+                local maxW = 0
+
+                for _, line in ipairs(lines) do
+                    maxW = math.max(maxW, (surface.GetTextSize(line)))
+                end
+
+                local scale = math.min(1, (h * 0.9) / (#lines * th), (areaW - 20) / maxW)
+                local m = Matrix()
+                m:Translate(Vector(areaX + areaW * 0.5, h * 0.5, 0))
+                m:Scale(Vector(scale, scale, 1))
+
+                cam.PushModelMatrix(m, true) -- multiply: keep the 3D2D transform
+                    local top = -#lines * th * 0.5
+
+                    for i, line in ipairs(lines) do
+                        local tw = surface.GetTextSize(line)
+                        surface.SetTextPos(-tw * 0.5, top + (i - 1) * th)
+                        surface.DrawText(line)
+                    end
+                cam.PopModelMatrix()
             end
 
-            -- Dot matrix look
+            -- Dot matrix look (only with a background: on a transparent sign the grid would float in the air)
             local grid = config.destinationSignGridSize
             local gridColor = config.destinationSignGridColor
 
-            if grid > 0 and gridColor.a > 0 then
+            if showBackground and grid > 0 and gridColor.a > 0 then
                 surface.SetDrawColor(gridColor)
 
                 for gx = 0, w, grid do
@@ -1091,7 +1169,9 @@ end
 -- Adds the network vars the extra functions read, with the same "Edit Properties" entries on every vehicle.
 -- Call it from ENT:SetupDataTables, after BaseClass.SetupDataTables( self ). Pass the keys you need:
 --   destinationText = true  -> ENT:GetDestinationText / SetDestinationText (String, for the destination sign)
+--                              and ENT:GetDestinationColor / SetDestinationColor (Vector 0-1, text color, always added with it)
 --   speedLimit = true       -> ENT:GetSpeedLimit / SetSpeedLimit (Int, km/h as the Glide HUD shows them, 0 = no limit, for the speed limiter)
+--   destinationLine = true  -> ENT:GetDestinationLine / SetDestinationLine (String, line number shown fixed at the left of the destination sign)
 -- `category` is the Edit Properties category and `order` the position of the first entry (the next one uses order + 1).
 function BlackterioExtraFunctions:AddEditableVars(vehicle, options)
     options = options or {}
@@ -1101,9 +1181,16 @@ function BlackterioExtraFunctions:AddEditableVars(vehicle, options)
 
     if options.destinationText then
         vehicle:NetworkVar("String", "DestinationText", { KeyName = "destinationtext", Edit = { type = "Generic", order = order, waitforenter = true, category = category } })
+
+        -- Always editable with the destination sign. (0, 0, 0) = none picked: the sign uses config.destinationSignColor
+        vehicle:NetworkVar("Vector", "DestinationColor", { KeyName = "destinationcolor", Edit = { type = "VectorColor", order = order + 3, category = category } })
     end
 
     if options.speedLimit then
         vehicle:NetworkVar("Int", "SpeedLimit", { KeyName = "speedlimit", Edit = { type = "Int", order = order + 1, min = 0, max = options.speedLimitMax or 500, category = category } })
+    end
+
+    if options.destinationLine then
+        vehicle:NetworkVar("String", "DestinationLine", { KeyName = "destinationline", Edit = { type = "Generic", order = order + 2, waitforenter = true, category = category } })
     end
 end

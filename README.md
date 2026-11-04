@@ -16,7 +16,7 @@
 - Horn button and turn signal stalk
 - Gear lever (taps on every shift, one position per gear, or an H pattern for manual gearboxes), by bone or pose parameter
 - Looping engine animations that follow the RPM (belts, fan...)
-- Editable LED destination sign (3D2D, with marquee) and electronic speed limiter, both editable from "Edit Properties"
+- Editable LED destination sign (3D2D, with marquee, line number, several lines and optional transparent background) and electronic speed limiter, both editable from "Edit Properties"
 - Support for 9 doors/animations with customizable keys and sounds
 - Open/close doors, hood and trunk by aiming at them with the use key (LVS style, compatible with Glide // Car Keys)
 - Sit in a specific seat by aiming at it with the use key (optional, per vehicle)

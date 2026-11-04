@@ -148,6 +148,7 @@ function ENT:GetExtraFunctionsConfig()
             destinationSignPos = Vector( 100, -20, 80 ),
             destinationSignAng = Angle( 0, 90, 90 ),
             destinationSignColor = Color( 255, 160, 20 ),
+            -- destinationSignShowBackground = false, -- no black rectangle
 
             -- Speed limiter, value editable in "Edit Properties"
             speedLimiter = true,
@@ -185,14 +186,17 @@ function ENT:SetupDataTables()
         BlackterioExtraFunctions:AddEditableVars( self, {
             category = "Example Full Vehicle",
             order = 201,
-            destinationText = true, -- GetDestinationText / SetDestinationText
+            destinationText = true, -- GetDestinationText / SetDestinationText (also adds GetDestinationColor / SetDestinationColor)
             speedLimit = true, -- GetSpeedLimit / SetSpeedLimit (km/h)
             -- speedLimitMax = 500,
+            destinationLine = true, -- GetDestinationLine / SetDestinationLine (line number)
         } )
     else
         -- Without the addon: same vars, just not editable
         self:NetworkVar( "String", "DestinationText" )
         self:NetworkVar( "Int", "SpeedLimit" )
+        self:NetworkVar( "String", "DestinationLine" )
+        self:NetworkVar( "Vector", "DestinationColor" )
     end
 end
 
@@ -263,7 +267,8 @@ if SERVER then
     end
 
     function ENT:CreateFeatures()
-        self:SetDestinationText( "CITY" ) -- starting text of the sign
+        self:SetDestinationText( "CITY" ) -- starting text of the sign ("MAIN ST|CENTRAL STATION" = two lines)
+        self:SetDestinationLine( "159" ) -- line number, fixed at the left of the sign
         self:SetSpeedLimit( 120 ) -- starting limit (km/h)
 
         self:SetMinRPM( 1000 )

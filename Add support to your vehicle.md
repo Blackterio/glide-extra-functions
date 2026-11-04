@@ -364,6 +364,14 @@ Each entry is a looping pose parameter (0 to 1, it should have `loop` enabled in
 
 A panel that shows a text that the player can edit with "Edit Properties" (right click on the vehicle). It scrolls like a marquee when the text doesn't fit.
 
+New in v110426:
+- **Line number** (optional): a second editable text, fixed at the left. The destination uses the rest of the sign.
+- **Several lines**: separate them with `|` in the destination text (`MAIN ST|CENTRAL STATION`). They are centered and shrunk to fit, with no marquee.
+- **Text color**: always editable in "Edit Properties" with `destinationText = true`. If nobody picks one, it uses `destinationSignColor` (amber). It also colors the line number, unless you set `destinationSignLineColor`.
+- **Transparent sign**: `destinationSignShowBackground = false` removes the black rectangle (and the grid).
+
+If your vehicle already uses `destinationText = true`, add `self:NetworkVar("Vector", "DestinationColor")` to its `else` branch.
+
 **1.** Add the editable network vars in `SetupDataTables`. Call it after the base class:
 
 ```
@@ -377,18 +385,21 @@ function ENT:SetupDataTables()
             destinationText = true,    -- ENT:GetDestinationText / SetDestinationText (text of the sign)
             speedLimit = true,         -- ENT:GetSpeedLimit / SetSpeedLimit (km/h, see the speed limiter)
             -- speedLimitMax = 500,    -- maximum value of the speed limit
+            destinationLine = true,    -- ENT:GetDestinationLine / SetDestinationLine (line number, optional)
         })
     else
         -- Without Extra Functions: same vars in the same order, just not editable
         self:NetworkVar("String", "DestinationText")
         self:NetworkVar("Int", "SpeedLimit")
+        self:NetworkVar("String", "DestinationLine")
+        self:NetworkVar("Vector", "DestinationColor") -- added by destinationText = true
     end
 end
 ```
 
-Extra Functions is optional (v102926-2): always check `BlackterioExtraFunctions` before using it, or the vehicle won't spawn without the addon. The `else` branch keeps `SetDestinationText` and `SetSpeedLimit` available. Declare only the vars you use, in both branches.
+Extra Functions is optional (v102926-2): always check `BlackterioExtraFunctions` before using it, or the vehicle won't spawn without the addon. The `else` branch keeps `SetDestinationText`, `SetSpeedLimit`, `SetDestinationLine` and `SetDestinationColor` available. Declare only the vars you use, in both branches.
 
-Set the initial text with `self:SetDestinationText("CITY")` (for example in `CreateFeatures`).
+Set the initial text with `self:SetDestinationText("CITY")` (for example in `CreateFeatures`). Same for the line number: `self:SetDestinationLine("159")`, and for the color: `self:SetDestinationColor(Vector(0, 1, 0))` (values from 0 to 1). For several lines use `self:SetDestinationText("MAIN ST|CENTRAL STATION")`.
 
 **2.** Turn it on in the config:
 
@@ -400,8 +411,13 @@ destinationSignScale = 0.05,
 destinationSignWidth = 716,  -- size in sign pixels. Width * scale = units (716 * 0.05 = 35.8)
 destinationSignHeight = 100,
 destinationSignFont = "BlackterioDefaultDestinationSign", -- the addon creates this one. A CUSTOM font must be created by you with surface.CreateFont
-destinationSignColor = Color(255, 160, 20),
+destinationSignColor = Color(255, 160, 20), -- default text color (used until someone picks one in Edit Properties)
 destinationSignBackground = Color(8, 6, 2, 255),
+destinationSignShowBackground = true, -- false = no black rectangle (the grid is hidden too)
+destinationSignLineFont = "BlackterioDefaultDestinationSign", -- font of the line number
+destinationSignLineColor = false, -- false = same as destinationSignColor
+destinationSignLineWidth = 0, -- width of the line number box in sign pixels. 0 = fits the number
+destinationSignLinePadding = 16, -- space around the number when LineWidth is 0
 destinationSignGridColor = Color(0, 0, 0, 150), -- dot matrix look. Alpha 0 or GridSize 0 = no grid
 destinationSignGridSize = 6,
 destinationSignMarqueeSpeed = 120, -- pixels per second when the text doesn't fit
@@ -512,6 +528,7 @@ function ENT:SetupDataTables()
     else
         self:NetworkVar("String", "DestinationText")
         self:NetworkVar("Int", "SpeedLimit")
+        self:NetworkVar("Vector", "DestinationColor")
     end
 end
 
