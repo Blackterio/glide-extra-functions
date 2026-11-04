@@ -933,22 +933,17 @@ local function TraceParts( start, delta )
 
     for _, vehicle in ipairs( candidates ) do
         if IsValid( vehicle ) then
-            local parts = BlackterioCustomAnims.GetAimPartMap( vehicle )
+            local parts = BlackterioCustomAnims.GetAimPartMap( vehicle ) or {}
 
-            if parts then
-                for _, part in ipairs( parts ) do
-                    local m = vehicle:GetBoneMatrix( part.bone )
+            for _, part in ipairs( parts ) do
+                local m = vehicle:GetBoneMatrix( part.bone )
+                local hit = m and util.IntersectRayWithOBB( start, delta, m:GetTranslation(), m:GetAngles(), part.mins, part.maxs )
 
-                    if m then
-                        local hit = util.IntersectRayWithOBB( start, delta, m:GetTranslation(), m:GetAngles(), part.mins, part.maxs )
+                if hit then
+                    local dist = start:Distance( hit )
 
-                        if hit then
-                            local dist = start:Distance( hit )
-
-                            if not bestDist or dist < bestDist then
-                                best, bestDist = { vehicle = vehicle, part = part, matrix = m }, dist
-                            end
-                        end
+                    if not bestDist or dist < bestDist then
+                        best, bestDist = { vehicle = vehicle, part = part, matrix = m }, dist
                     end
                 end
             end
@@ -966,18 +961,16 @@ local function TraceSeats( start, delta )
         if IsValid( vehicle ) and vehicle.seats then
             local config = BlackterioCustomAnims.GetConfig( vehicle )
 
-            if config and config.aimToSit then
-                for _, seat in ipairs( vehicle.seats ) do
-                    if IsValid( seat ) then
-                        local hit = util.IntersectRayWithOBB( start, delta, seat:GetPos(), seat:GetAngles(), SEAT_MINS, SEAT_MAXS )
+            local seats = ( config and config.aimToSit ) and vehicle.seats or {}
 
-                        if hit then
-                            local dist = start:Distance( hit )
+            for _, seat in ipairs( seats ) do
+                local hit = IsValid( seat ) and util.IntersectRayWithOBB( start, delta, seat:GetPos(), seat:GetAngles(), SEAT_MINS, SEAT_MAXS )
 
-                            if not bestDist or dist < bestDist then
-                                best, bestDist = { vehicle = vehicle, seat = seat }, dist
-                            end
-                        end
+                if hit then
+                    local dist = start:Distance( hit )
+
+                    if not bestDist or dist < bestDist then
+                        best, bestDist = { vehicle = vehicle, seat = seat }, dist
                     end
                 end
             end

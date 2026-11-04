@@ -68,23 +68,23 @@ BlackterioExtraFunctions.DefaultConfig = {
     -- Tachometer needle lerp (was hardcoded to 0.15 before)
     tachoLerpRate = 0.15,
 
-	-- Speedometer calibration and multiplier
+    -- Speedometer calibration and multiplier
     speedCalibration = 90,
     speedMultiplier = 1.9,
 
     -- Fuel lerp
     fuelLerpRate = 0.1,
 
-	-- Oil lerp and max value
+    -- Oil lerp and max value
     oilLerpRate = 0.0025,
     oilMaxValue = 1, -- 0 is 0%, 1 is 100%
     oilMinValue = 1, -- 0 is 0%, 1 is 100%
 
-	-- Temperature lerp and max value
+    -- Temperature lerp and max value
     tempLerpRate = 0.1,
     tempMaxValue = 0.5, -- 0 is 0%, 1 is 100%
 
-	-- Battery lerp and max value
+    -- Battery lerp and max value
     batteryLerpRate = 0.1,
     batteryMaxValue = 0.5,
 
@@ -111,11 +111,11 @@ BlackterioExtraFunctions.DefaultConfig = {
     clickSwitchSizes = {},
 
     -- Digital Speedometer configuration
-    digitalSpeedoPos = Vector(0, 0, 0), -- Text position in vehicle
-    digitalSpeedoAng = Angle(0, 0, 0), -- Text angle
+    digitalSpeedoPos = Vector( 0, 0, 0 ), -- Text position in vehicle
+    digitalSpeedoAng = Angle( 0, 0, 0 ), -- Text angle
     digitalSpeedoScale = 0.05, -- Text scale
     digitalSpeedoFont = "BlackterioDefaultDigitalSpeedo", -- Text font (custom fonts must be created by the vehicle author with surface.CreateFont)
-    digitalSpeedoColor = Color(255, 255, 255), -- Text color
+    digitalSpeedoColor = Color( 255, 255, 255 ), -- Text color
     digitalSpeedoUnit = "KMH", -- "KMH" or "MPH", conversions are automatic
     digitalSpeedoShowUnit = false, -- Show speed unit
     digitalSpeedoRequireEngine = true, -- Only show when engine is on
@@ -159,20 +159,20 @@ BlackterioExtraFunctions.DefaultConfig = {
     gearLeverH = {},
 
     -- Destination sign (3D2D). Needs the DestinationText network var: see BlackterioExtraFunctions:AddEditableVars
-    destinationSignPos = Vector(0, 0, 0), -- Top left corner of the sign, seen from the front
-    destinationSignAng = Angle(0, 90, 90),
+    destinationSignPos = Vector( 0, 0, 0 ), -- Top left corner of the sign, seen from the front
+    destinationSignAng = Angle( 0, 90, 90 ),
     destinationSignScale = 0.05,
     destinationSignWidth = 716, -- Size in sign pixels (width * scale = units)
     destinationSignHeight = 100,
     destinationSignFont = "BlackterioDefaultDestinationSign", -- Custom fonts must be created by the vehicle author with surface.CreateFont
-    destinationSignColor = Color(255, 160, 20),
-    destinationSignBackground = Color(8, 6, 2, 255),
+    destinationSignColor = Color( 255, 160, 20 ),
+    destinationSignBackground = Color( 8, 6, 2, 255 ),
     destinationSignShowBackground = true, -- false = no black rectangle (the dot matrix grid is hidden too)
     destinationSignLineFont = "BlackterioDefaultDestinationSign", -- Font of the line number (DestinationLine network var)
     destinationSignLineColor = false, -- false = same as destinationSignColor
     destinationSignLineWidth = 0, -- Width of the line number box in sign pixels. 0 = fits the number
     destinationSignLinePadding = 16, -- Space around the number when destinationSignLineWidth is 0
-    destinationSignGridColor = Color(0, 0, 0, 150), -- Dot matrix look. Alpha 0 or destinationSignGridSize 0 = no grid
+    destinationSignGridColor = Color( 0, 0, 0, 150 ), -- Dot matrix look. Alpha 0 or destinationSignGridSize 0 = no grid
     destinationSignGridSize = 6,
     destinationSignMarqueeSpeed = 120, -- Pixels per second when the text doesn't fit
     destinationSignDrawDistance = 3000,
@@ -219,28 +219,28 @@ BlackterioExtraFunctions.DefaultConfig = {
 -- with surface.CreateFont. This addon no longer (re)creates them: doing so
 -- overwrote the author's font definition with the default Tahoma one.
 if CLIENT then
-    surface.CreateFont("BlackterioDefaultDigitalSpeedo", {
+    surface.CreateFont( "BlackterioDefaultDigitalSpeedo", {
         font = "Tahoma",
         size = 20,
         weight = 700,
         antialias = true,
-    })
+    } )
 
-    surface.CreateFont("BlackterioDefaultDestinationSign", {
+    surface.CreateFont( "BlackterioDefaultDestinationSign", {
         font = "Consolas",
         size = 78,
         weight = 900,
         antialias = false,
-    })
+    } )
 end
 
 -- Frame-rate independent Lerp helper.
 -- `rate` keeps the same feel the old per-frame fractions had at 60 FPS,
 -- but the result no longer depends on the client's frame rate.
-local function FrameLerp(rate, from, to)
+local function FrameLerp( rate, from, to )
     if rate >= 1 then return to end
     if rate <= 0 then return from end
-    return Lerp(1 - (1 - rate) ^ (FrameTime() * 60), from, to)
+    return Lerp( 1 - ( 1 - rate ) ^ ( FrameTime() * 60 ), from, to )
 end
 
 --[[
@@ -250,14 +250,14 @@ end
     park, like turning the key off in a real car. The oil pressure gauge stays
     up on states 2-3 instead, since pressure exists while the engine spins.
 ]]
-local function AreElectricsOn(vehicle)
+local function AreElectricsOn( vehicle )
     local state = vehicle:GetEngineState()
     return state == 1 or state == 2
 end
 
 -- Main function to update anims
-function BlackterioExtraFunctions:UpdateAnimations(vehicle, config)
-    if not IsValid(vehicle) then return end
+function BlackterioExtraFunctions:UpdateAnimations( vehicle, config )
+    if not IsValid( vehicle ) then return end
 
     -- Use default configuration if a custom one isn't specified
     config = config or self.DefaultConfig
@@ -268,92 +268,92 @@ function BlackterioExtraFunctions:UpdateAnimations(vehicle, config)
     -- re-entrancy guard prevents an infinite BaseClass recursion (it turns
     -- a would-be stack overflow into a harmless skipped call).
     if not vehicle.befInBaseUpdate then
-        local base = config.baseClass and baseclass.Get(config.baseClass) or vehicle.BaseClass
+        local base = config.baseClass and baseclass.Get( config.baseClass ) or vehicle.BaseClass
         if base and base.OnUpdateAnimations then
             vehicle.befInBaseUpdate = true
-            base.OnUpdateAnimations(vehicle)
+            base.OnUpdateAnimations( vehicle )
             vehicle.befInBaseUpdate = false
         end
     end
 
     -- Update pedals anim
     if config.pedals then
-        self:UpdatePedals(vehicle, config)
+        self:UpdatePedals( vehicle, config )
     end
 
     -- Update clutch anim
     if config.clutch then
-        self:UpdateClutch(vehicle, config)
+        self:UpdateClutch( vehicle, config )
     end
 
     -- Update speedometer and tachometer anims
     if config.speedo or config.tacho then
-        self:UpdateGauges(vehicle, config)
+        self:UpdateGauges( vehicle, config )
     end
 
     -- Update fuel anim
     if config.fuel then
-        self:UpdateFuel(vehicle, config)
+        self:UpdateFuel( vehicle, config )
     end
 
     -- Update wipers anim
     if config.wipers then
-        self:UpdateWipers(vehicle, config)
+        self:UpdateWipers( vehicle, config )
     end
 
     -- Update oil anim
     if config.oil then
-        self:UpdateOil(vehicle, config)
+        self:UpdateOil( vehicle, config )
     end
 
     -- Update temperature anim
     if config.temp then
-        self:UpdateTemp(vehicle, config)
+        self:UpdateTemp( vehicle, config )
     end
 
     -- Update battery anim
     if config.battery then
-        self:UpdateBattery(vehicle, config)
+        self:UpdateBattery( vehicle, config )
     end
 
     -- Update ignition key anim
     if config.ignitionKey then
-        self:UpdateIgnitionKey(vehicle, config)
+        self:UpdateIgnitionKey( vehicle, config )
     end
 
     -- Update light switch anim
     if config.lightSwitch then
-        self:UpdateLightSwitch(vehicle, config)
+        self:UpdateLightSwitch( vehicle, config )
     end
 
     -- Update wiper switch anim
     if config.wiperSwitch then
-        self:UpdateWiperSwitch(vehicle, config)
+        self:UpdateWiperSwitch( vehicle, config )
     end
 
     -- Update handbrake lever anim
     if config.handbrake then
-        self:UpdateHandbrake(vehicle, config)
+        self:UpdateHandbrake( vehicle, config )
     end
 
     -- Update horn button anim
     if config.horn then
-        self:UpdateHorn(vehicle, config)
+        self:UpdateHorn( vehicle, config )
     end
 
     -- Update turn signal stalk anim
     if config.turnStalk then
-        self:UpdateTurnStalk(vehicle, config)
+        self:UpdateTurnStalk( vehicle, config )
     end
 
     -- Update gear lever anim
     if config.gearLever then
-        self:UpdateGearLever(vehicle, config)
+        self:UpdateGearLever( vehicle, config )
     end
 
     -- Update engine anims (belts, fan...)
     if config.engineAnims then
-        self:UpdateEngineAnims(vehicle, config)
+        self:UpdateEngineAnims( vehicle, config )
     end
 
     -- Invalidate bone cache. This is NOT redundant with the base class call:
@@ -362,32 +362,32 @@ function BlackterioExtraFunctions:UpdateAnimations(vehicle, config)
 end
 
 -- Pedals
-function BlackterioExtraFunctions:UpdatePedals(vehicle, config)
+function BlackterioExtraFunctions:UpdatePedals( vehicle, config )
     if not vehicle.befGas then
         vehicle.befGas = 0
         vehicle.befBrake = 0
     end
 
     -- Update accelerator
-    vehicle.befGas = FrameLerp(config.pedalLerpRate, vehicle.befGas, vehicle:GetEngineThrottle())
+    vehicle.befGas = FrameLerp( config.pedalLerpRate, vehicle.befGas, vehicle:GetEngineThrottle() )
 
     -- Update brake
     if vehicle:IsBraking() then
         if vehicle:GetEngineState() <= 1 then
-            vehicle.befBrake = FrameLerp(config.pedalLerpRate, vehicle.befBrake, 0)
+            vehicle.befBrake = FrameLerp( config.pedalLerpRate, vehicle.befBrake, 0 )
         else
-            vehicle.befBrake = FrameLerp(config.pedalLerpRate, vehicle.befBrake, vehicle:GetBrakePower())
+            vehicle.befBrake = FrameLerp( config.pedalLerpRate, vehicle.befBrake, vehicle:GetBrakePower() )
         end
     else
-        vehicle.befBrake = FrameLerp(config.pedalLerpRate, vehicle.befBrake, 0)
+        vehicle.befBrake = FrameLerp( config.pedalLerpRate, vehicle.befBrake, 0 )
     end
 
-    vehicle:SetPoseParameter(config.poseParameters.gas, vehicle.befGas)
-    vehicle:SetPoseParameter(config.poseParameters.brake, vehicle.befBrake)
+    vehicle:SetPoseParameter( config.poseParameters.gas, vehicle.befGas )
+    vehicle:SetPoseParameter( config.poseParameters.brake, vehicle.befBrake )
 end
 
 -- Clutch
-function BlackterioExtraFunctions:UpdateClutch(vehicle, config)
+function BlackterioExtraFunctions:UpdateClutch( vehicle, config )
     local gear = vehicle:GetGear()
 
     if gear ~= vehicle.befPrevGear then
@@ -404,7 +404,7 @@ function BlackterioExtraFunctions:UpdateClutch(vehicle, config)
         -- Lerp from the stored start value so the movement really lasts
         -- `clutchDuration` seconds (lerping from the current value compounded
         -- every frame and finished much earlier than configured).
-        vehicle.befClutch = Lerp(math.min(elapsed / duration, 1), vehicle.befClutchStart, vehicle.befTargetClutch)
+        vehicle.befClutch = Lerp( math.min( elapsed / duration, 1 ), vehicle.befClutchStart, vehicle.befTargetClutch )
 
         if elapsed >= duration then
             if not vehicle.befClutchReturning then
@@ -418,12 +418,12 @@ function BlackterioExtraFunctions:UpdateClutch(vehicle, config)
             end
         end
 
-        vehicle:SetPoseParameter(config.poseParameters.clutch, vehicle.befClutch)
+        vehicle:SetPoseParameter( config.poseParameters.clutch, vehicle.befClutch )
     end
 end
 
 -- Speedometer and tachometer
-function BlackterioExtraFunctions:UpdateGauges(vehicle, config)
+function BlackterioExtraFunctions:UpdateGauges( vehicle, config )
     if not vehicle.befGauge then
         vehicle.befGauge = 0
         vehicle.befSpeed = 0
@@ -434,25 +434,25 @@ function BlackterioExtraFunctions:UpdateGauges(vehicle, config)
     if config.tacho then
         local tachoRate = config.tachoLerpRate or 0.15
         if vehicle:GetEngineState() > 0 then
-            vehicle.befRpm = FrameLerp(tachoRate, vehicle.befRpm, vehicle:GetEngineRPM() / vehicle:GetMaxRPM() - config.rpmCalibration)
+            vehicle.befRpm = FrameLerp( tachoRate, vehicle.befRpm, vehicle:GetEngineRPM() / vehicle:GetMaxRPM() - config.rpmCalibration )
         else
-            vehicle.befRpm = FrameLerp(tachoRate, vehicle.befRpm, 0)
+            vehicle.befRpm = FrameLerp( tachoRate, vehicle.befRpm, 0 )
         end
-        vehicle:SetPoseParameter(config.poseParameters.tacho, vehicle.befRpm)
+        vehicle:SetPoseParameter( config.poseParameters.tacho, vehicle.befRpm )
     end
 
     -- Update Speedometer
     -- Longitudinal speed via dot product: same value the old
     -- WorldToLocal(velocity + pos).x gave, without allocating vectors.
     if config.speedo then
-        vehicle.befSpeed = vehicle:GetVelocity():Dot(vehicle:GetForward()) * 0.03
+        vehicle.befSpeed = vehicle:GetVelocity():Dot( vehicle:GetForward() ) * 0.03
         vehicle.befGauge = vehicle.befSpeed / config.speedCalibration * config.speedMultiplier
-        vehicle:SetPoseParameter(config.poseParameters.speedo, vehicle.befGauge)
+        vehicle:SetPoseParameter( config.poseParameters.speedo, vehicle.befGauge )
     end
 end
 
 -- Oil
-function BlackterioExtraFunctions:UpdateOil(vehicle, config)
+function BlackterioExtraFunctions:UpdateOil( vehicle, config )
     if not vehicle.befOil then
         vehicle.befOil = 0
     end
@@ -464,55 +464,55 @@ function BlackterioExtraFunctions:UpdateOil(vehicle, config)
         local rpmFraction = vehicle:GetEngineRPM() / vehicle:GetMaxRPM()
         local a, b = config.oilMinValue, config.oilMaxValue
         -- Normalized clamp bounds so inverted gauges (min > max) also work
-        targetOil = math.Clamp(a + rpmFraction * (b - a), math.min(a, b), math.max(a, b))
+        targetOil = math.Clamp( a + rpmFraction * ( b - a ), math.min( a, b ), math.max( a, b ) )
     end
 
-    vehicle.befOil = FrameLerp(config.oilLerpRate, vehicle.befOil, targetOil)
-    vehicle:SetPoseParameter(config.poseParameters.oil, vehicle.befOil)
+    vehicle.befOil = FrameLerp( config.oilLerpRate, vehicle.befOil, targetOil )
+    vehicle:SetPoseParameter( config.poseParameters.oil, vehicle.befOil )
 end
 
 -- Temperature
-function BlackterioExtraFunctions:UpdateTemp(vehicle, config)
+function BlackterioExtraFunctions:UpdateTemp( vehicle, config )
     if not vehicle.befTemp then
         vehicle.befTemp = 0
     end
 
-    if AreElectricsOn(vehicle) then
-        vehicle.befTemp = FrameLerp(config.tempLerpRate, vehicle.befTemp, config.tempMaxValue)
+    if AreElectricsOn( vehicle ) then
+        vehicle.befTemp = FrameLerp( config.tempLerpRate, vehicle.befTemp, config.tempMaxValue )
     else
-        vehicle.befTemp = FrameLerp(config.tempLerpRate, vehicle.befTemp, 0)
+        vehicle.befTemp = FrameLerp( config.tempLerpRate, vehicle.befTemp, 0 )
     end
 
-    vehicle:SetPoseParameter(config.poseParameters.temp, vehicle.befTemp)
+    vehicle:SetPoseParameter( config.poseParameters.temp, vehicle.befTemp )
 end
 
 -- Battery
-function BlackterioExtraFunctions:UpdateBattery(vehicle, config)
+function BlackterioExtraFunctions:UpdateBattery( vehicle, config )
     if not vehicle.befBattery then
         vehicle.befBattery = 0
     end
 
-    if AreElectricsOn(vehicle) then
-        vehicle.befBattery = FrameLerp(config.batteryLerpRate, vehicle.befBattery, config.batteryMaxValue)
+    if AreElectricsOn( vehicle ) then
+        vehicle.befBattery = FrameLerp( config.batteryLerpRate, vehicle.befBattery, config.batteryMaxValue )
     else
-        vehicle.befBattery = FrameLerp(config.batteryLerpRate, vehicle.befBattery, 0)
+        vehicle.befBattery = FrameLerp( config.batteryLerpRate, vehicle.befBattery, 0 )
     end
 
-    vehicle:SetPoseParameter(config.poseParameters.battery, vehicle.befBattery)
+    vehicle:SetPoseParameter( config.poseParameters.battery, vehicle.befBattery )
 end
 
 -- Fuel
-function BlackterioExtraFunctions:UpdateFuel(vehicle, config)
+function BlackterioExtraFunctions:UpdateFuel( vehicle, config )
     if not vehicle.befFuel then
         vehicle.befFuel = 0
         vehicle.befFuelTarget = 0
         vehicle.befFuelNextRead = 0
     end
 
-    if AreElectricsOn(vehicle) then
+    if AreElectricsOn( vehicle ) then
         -- Fuel System addon presence is checked on every read tick (cheap),
         -- so it still works if that addon happens to load after us.
-        if GlideFuelSystem ~= nil and isfunction(GlideFuelSystem.GetFuel) then
+        if GlideFuelSystem ~= nil and isfunction( GlideFuelSystem.GetFuel ) then
             -- Throttle reads to every 0.25s (matches GlideFuelSystem consumption tick).
             -- Each frame only does a Lerp; NW2 reads happen at most 4x/second.
             local now = CurTime()
@@ -520,14 +520,14 @@ function BlackterioExtraFunctions:UpdateFuel(vehicle, config)
                 vehicle.befFuelNextRead = now + 0.25
 
                 -- Read NW2 floats directly, bypassing ResolveVehicle / IsFuelSystemDisabled overhead.
-                local current = vehicle:GetNW2Float("glide_fuel_system_value", -1)
+                local current = vehicle:GetNW2Float( "glide_fuel_system_value", -1 )
                 if current >= 0 then
-                    local max = vehicle:GetNW2Float("glide_fuel_system_forced_max", -1)
-                    if max <= 0 then max = vehicle:GetNW2Float("glide_fuel_system_max", -1) end
+                    local max = vehicle:GetNW2Float( "glide_fuel_system_forced_max", -1 )
+                    if max <= 0 then max = vehicle:GetNW2Float( "glide_fuel_system_max", -1 ) end
                     if max <= 0 then max = GlideFuelSystem.DefaultTankSize or 0 end
 
                     if max > 0 then
-                        vehicle.befFuelTarget = math.Clamp(current / max, 0, 1)
+                        vehicle.befFuelTarget = math.Clamp( current / max, 0, 1 )
                     else
                         -- Unknown tank size, treat as full (avoids dividing by nil/zero)
                         vehicle.befFuelTarget = 1
@@ -544,8 +544,8 @@ function BlackterioExtraFunctions:UpdateFuel(vehicle, config)
         vehicle.befFuelTarget = 0
     end
 
-    vehicle.befFuel = FrameLerp(config.fuelLerpRate, vehicle.befFuel, vehicle.befFuelTarget)
-    vehicle:SetPoseParameter(config.poseParameters.fuel, vehicle.befFuel)
+    vehicle.befFuel = FrameLerp( config.fuelLerpRate, vehicle.befFuel, vehicle.befFuelTarget )
+    vehicle:SetPoseParameter( config.poseParameters.fuel, vehicle.befFuel )
 end
 
 
@@ -572,14 +572,14 @@ local function ApplyWiperPose( vehicle, config, value )
     if value == 0 and vehicle.befWipersParked then return end
     vehicle.befWipersParked = ( value == 0 )
 
-    vehicle:SetPoseParameter(config.poseParameters.wipers1, value)
-    vehicle:SetPoseParameter(config.poseParameters.wipers2, value)
-    vehicle:SetPoseParameter(config.poseParameters.wipers3, value)
-    vehicle:SetPoseParameter(config.poseParameters.wipers4, value)
+    vehicle:SetPoseParameter( config.poseParameters.wipers1, value )
+    vehicle:SetPoseParameter( config.poseParameters.wipers2, value )
+    vehicle:SetPoseParameter( config.poseParameters.wipers3, value )
+    vehicle:SetPoseParameter( config.poseParameters.wipers4, value )
 end
 
 -- Wipers
-function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
+function BlackterioExtraFunctions:UpdateWipers( vehicle, config )
     self:_EnsureWeatherChecked()
 
     -- Wiper state and mode come from NW2 vars on the vehicle (set server-side
@@ -617,7 +617,7 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
     end
 
     local shouldWipe = false
-    local engineOn   = AreElectricsOn(vehicle) -- state 3 (shutting down) parks the wipers
+    local engineOn   = AreElectricsOn( vehicle ) -- state 3 (shutting down) parks the wipers
 
     if manualOn then
         shouldWipe = engineOn
@@ -646,10 +646,10 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
 
     if shouldWipe then
         vehicle.befWipersActive = true
-        vehicle.befWipers = math.sin((CurTime() - vehicle.befOldWipers) / config.wiperSpeed)
+        vehicle.befWipers = math.sin( ( CurTime() - vehicle.befOldWipers ) / config.wiperSpeed )
     else
         if vehicle.befWipersActive then
-            local sinVal = math.sin((CurTime() - vehicle.befOldWipers) / config.wiperSpeed)
+            local sinVal = math.sin( ( CurTime() - vehicle.befOldWipers ) / config.wiperSpeed )
             if sinVal <= 0 then
                 vehicle.befWipersActive = false
                 vehicle.befWipers = 0
@@ -672,11 +672,9 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
 
         if CLIENT then
             -- Start: primera activación, o wiper cruza cero ascendiendo (inicio de barrido)
-            if prev == nil or ( prev < 0 and cur > 0 ) then
-                if soundEnabled then
-                    local snd = ResolveWiperSound( config, "wiperStartCycleSound", self.DefaultConfig )
-                    if snd then vehicle:EmitSound( snd ) end
-                end
+            if soundEnabled and ( prev == nil or ( prev < 0 and cur > 0 ) ) then
+                local snd = ResolveWiperSound( config, "wiperStartCycleSound", self.DefaultConfig )
+                if snd then vehicle:EmitSound( snd ) end
             end
 
             -- Peak: marcar al entrar en zona de máximo recorrido (solo en semiciclo positivo)
@@ -703,7 +701,7 @@ function BlackterioExtraFunctions:UpdateWipers(vehicle, config)
 end
 
 -- Ignition Key Animation
-function BlackterioExtraFunctions:UpdateIgnitionKey(vehicle, config)
+function BlackterioExtraFunctions:UpdateIgnitionKey( vehicle, config )
     if not vehicle.befIgnitionKey then
         vehicle.befIgnitionKey = 0
     end
@@ -718,12 +716,12 @@ function BlackterioExtraFunctions:UpdateIgnitionKey(vehicle, config)
     end
     -- States 0 and 3 (shutting down = key turned off) return the key to 0
 
-    vehicle.befIgnitionKey = FrameLerp(config.ignitionLerpRate, vehicle.befIgnitionKey, targetKeyPosition)
-    vehicle:SetPoseParameter(config.poseParameters.ignitionKey, vehicle.befIgnitionKey)
+    vehicle.befIgnitionKey = FrameLerp( config.ignitionLerpRate, vehicle.befIgnitionKey, targetKeyPosition )
+    vehicle:SetPoseParameter( config.poseParameters.ignitionKey, vehicle.befIgnitionKey )
 end
 
 -- Light Switch Animation
-function BlackterioExtraFunctions:UpdateLightSwitch(vehicle, config)
+function BlackterioExtraFunctions:UpdateLightSwitch( vehicle, config )
     if not vehicle.befLightSwitch then
         vehicle.befLightSwitch = 0
     end
@@ -737,12 +735,12 @@ function BlackterioExtraFunctions:UpdateLightSwitch(vehicle, config)
         targetSwitchPosition = 1
     end
 
-    vehicle.befLightSwitch = FrameLerp(config.lightSwitchLerpRate, vehicle.befLightSwitch, targetSwitchPosition)
-    vehicle:SetPoseParameter(config.poseParameters.lightSwitch, vehicle.befLightSwitch)
+    vehicle.befLightSwitch = FrameLerp( config.lightSwitchLerpRate, vehicle.befLightSwitch, targetSwitchPosition )
+    vehicle:SetPoseParameter( config.poseParameters.lightSwitch, vehicle.befLightSwitch )
 end
 
 -- Wiper Switch Animation
-function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
+function BlackterioExtraFunctions:UpdateWiperSwitch( vehicle, config )
     self:_EnsureWeatherChecked()
 
     if not vehicle.befWiperSwitch then
@@ -751,7 +749,7 @@ function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
 
     local useManualMode = vehicle:GetNW2Bool( "blackterio_wipers_manual_mode", false )
     local manualOn      = vehicle:GetNW2Bool( "blackterio_wipers_on", false )
-    local engineOn      = AreElectricsOn(vehicle)
+    local engineOn      = AreElectricsOn( vehicle )
     local shouldWipe    = false
 
     if manualOn then
@@ -769,24 +767,24 @@ function BlackterioExtraFunctions:UpdateWiperSwitch(vehicle, config)
     local wipersActive = vehicle.befWipers ~= 0 and vehicle.befWipersActive
 
     local targetSwitchPosition = ( shouldWipe or wipersActive ) and 1 or 0
-    vehicle.befWiperSwitch = FrameLerp(config.wiperSwitchLerpRate, vehicle.befWiperSwitch, targetSwitchPosition)
-    vehicle:SetPoseParameter(config.poseParameters.wiperSwitch, vehicle.befWiperSwitch)
+    vehicle.befWiperSwitch = FrameLerp( config.wiperSwitchLerpRate, vehicle.befWiperSwitch, targetSwitchPosition )
+    vehicle:SetPoseParameter( config.poseParameters.wiperSwitch, vehicle.befWiperSwitch )
 end
 
 -- Handbrake lever
 -- The state comes from the "blackterio_handbrake" NW2Int, published by the server
 -- (Blackterio_Vehicle_Controls.lua): counter * 2 + state, 1 = applied. The counter
 -- changes on every press and release, so clients can tell when to play the sounds.
-function BlackterioExtraFunctions:UpdateHandbrake(vehicle, config)
+function BlackterioExtraFunctions:UpdateHandbrake( vehicle, config )
     if not vehicle.befHandbrake then
         vehicle.befHandbrake = 0
     end
 
-    local nw = vehicle:GetNW2Int("blackterio_handbrake", 0)
+    local nw = vehicle:GetNW2Int( "blackterio_handbrake", 0 )
     local applied = nw % 2 == 1
 
-    vehicle.befHandbrake = FrameLerp(config.handbrakeLerpRate, vehicle.befHandbrake, applied and 1 or 0)
-    vehicle:SetPoseParameter(config.poseParameters.handbrake, vehicle.befHandbrake)
+    vehicle.befHandbrake = FrameLerp( config.handbrakeLerpRate, vehicle.befHandbrake, applied and 1 or 0 )
+    vehicle:SetPoseParameter( config.poseParameters.handbrake, vehicle.befHandbrake )
 
     -- Cabin sounds, only heard from the inside. The first read is only a baseline
     local last = vehicle.befHandbrakeSeen
@@ -798,25 +796,25 @@ function BlackterioExtraFunctions:UpdateHandbrake(vehicle, config)
 
         if snd and snd ~= "" then
             local other = applied and offSound or onSound
-            if other and other ~= "" then vehicle:StopSound(other) end
+            if other and other ~= "" then vehicle:StopSound( other ) end
 
-            vehicle:EmitSound(snd, 70, 100, 1, CHAN_AUTO)
+            vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )
         end
     end
 end
 
 -- Horn button
-function BlackterioExtraFunctions:UpdateHorn(vehicle, config)
+function BlackterioExtraFunctions:UpdateHorn( vehicle, config )
     if not vehicle.befHorn then
         vehicle.befHorn = 0
     end
 
-    vehicle.befHorn = FrameLerp(config.hornLerpRate, vehicle.befHorn, vehicle:GetIsHonking() and 1 or 0)
-    vehicle:SetPoseParameter(config.poseParameters.horn, vehicle.befHorn)
+    vehicle.befHorn = FrameLerp( config.hornLerpRate, vehicle.befHorn, vehicle:GetIsHonking() and 1 or 0 )
+    vehicle:SetPoseParameter( config.poseParameters.horn, vehicle.befHorn )
 end
 
 -- Turn signal stalk: 1 = left signal, 2 = right signal, 3 = hazards (leave it centered)
-function BlackterioExtraFunctions:UpdateTurnStalk(vehicle, config)
+function BlackterioExtraFunctions:UpdateTurnStalk( vehicle, config )
     if not vehicle.befTurnStalk then
         vehicle.befTurnStalk = 0
     end
@@ -831,23 +829,23 @@ function BlackterioExtraFunctions:UpdateTurnStalk(vehicle, config)
         target = -left
     end
 
-    vehicle.befTurnStalk = FrameLerp(config.turnStalkLerpRate, vehicle.befTurnStalk, target)
-    vehicle:SetPoseParameter(config.poseParameters.turnStalk, vehicle.befTurnStalk)
+    vehicle.befTurnStalk = FrameLerp( config.turnStalkLerpRate, vehicle.befTurnStalk, target )
+    vehicle:SetPoseParameter( config.poseParameters.turnStalk, vehicle.befTurnStalk )
 end
 
 -- Gear lever (bone or pose parameter, "tap" or "position" mode)
 local leverAng = Angle()
 
-function BlackterioExtraFunctions:UpdateGearLever(vehicle, config)
+function BlackterioExtraFunctions:UpdateGearLever( vehicle, config )
     if config.gearLeverMode == "h" then
-        return self:UpdateGearLeverH(vehicle, config)
+        return self:UpdateGearLeverH( vehicle, config )
     end
 
     local boneName = config.gearLeverBone
     local useBone = boneName ~= nil and boneName ~= ""
 
-    if useBone and (vehicle.befLeverBone == nil or vehicle.befLeverModel ~= vehicle:GetModel()) then
-        vehicle.befLeverBone = vehicle:LookupBone(boneName) or false
+    if useBone and ( vehicle.befLeverBone == nil or vehicle.befLeverModel ~= vehicle:GetModel() ) then
+        vehicle.befLeverBone = vehicle:LookupBone( boneName ) or false
         vehicle.befLeverModel = vehicle:GetModel()
     end
 
@@ -867,21 +865,21 @@ function BlackterioExtraFunctions:UpdateGearLever(vehicle, config)
             vehicle.befLeverHoldUntil = CurTime() + config.gearLeverHold
         end
 
-        if (vehicle.befLeverTap or 0) ~= 0 and CurTime() > (vehicle.befLeverHoldUntil or 0) then
+        if ( vehicle.befLeverTap or 0 ) ~= 0 and CurTime() > ( vehicle.befLeverHoldUntil or 0 ) then
             vehicle.befLeverTap = 0
         end
 
-        target = (vehicle.befLeverTap or 0) * config.gearLeverSign * (useBone and config.gearLeverAngle or 1)
+        target = ( vehicle.befLeverTap or 0 ) * config.gearLeverSign * ( useBone and config.gearLeverAngle or 1 )
     end
 
-    vehicle.befLever = FrameLerp(config.gearLeverLerpRate, vehicle.befLever or 0, target)
+    vehicle.befLever = FrameLerp( config.gearLeverLerpRate, vehicle.befLever or 0, target )
 
     if useBone then
         leverAng[1], leverAng[2], leverAng[3] = 0, 0, 0
         leverAng[config.gearLeverAxis] = vehicle.befLever
-        vehicle:ManipulateBoneAngles(vehicle.befLeverBone, leverAng)
+        vehicle:ManipulateBoneAngles( vehicle.befLeverBone, leverAng )
     else
-        vehicle:SetPoseParameter(config.poseParameters.gearLever, vehicle.befLever)
+        vehicle:SetPoseParameter( config.poseParameters.gearLever, vehicle.befLever )
     end
 end
 
@@ -889,7 +887,7 @@ end
 local hAng = Angle()
 local zeroAng = Angle()
 
-function BlackterioExtraFunctions:UpdateGearLeverH(vehicle, config)
+function BlackterioExtraFunctions:UpdateGearLeverH( vehicle, config )
     local h = config.gearLeverH
     if not h or not h.positions then return end
 
@@ -899,8 +897,8 @@ function BlackterioExtraFunctions:UpdateGearLeverH(vehicle, config)
         vehicle.befHModel = vehicle:GetModel()
         vehicle.befHBones = {}
 
-        for i, b in ipairs(bones) do
-            vehicle.befHBones[i] = vehicle:LookupBone(b.name or "") or false
+        for i, b in ipairs( bones ) do
+            vehicle.befHBones[i] = vehicle:LookupBone( b.name or "" ) or false
         end
     end
 
@@ -911,19 +909,19 @@ function BlackterioExtraFunctions:UpdateGearLeverH(vehicle, config)
     local x, y = vehicle.befHX or tx, vehicle.befHY or ty
     local dt = FrameTime()
 
-    if math.abs(x - tx) > 1e-4 then
-        if math.abs(y) > 1e-4 then
-            y = math.Approach(y, 0, (h.speedY or 4.5) * dt)   -- out of the gear, to the neutral row
+    if math.abs( x - tx ) > 1e-4 then
+        if math.abs( y ) > 1e-4 then
+            y = math.Approach( y, 0, ( h.speedY or 4.5 ) * dt )   -- out of the gear, to the neutral row
         else
-            x = math.Approach(x, tx, (h.speedX or 15) * dt)   -- across the gates
+            x = math.Approach( x, tx, ( h.speedX or 15 ) * dt )   -- across the gates
         end
     else
-        y = math.Approach(y, ty, (h.speedY or 4.5) * dt)      -- into the gear
+        y = math.Approach( y, ty, ( h.speedY or 4.5 ) * dt )      -- into the gear
     end
 
     vehicle.befHX, vehicle.befHY = x, y
 
-    for i, b in ipairs(bones) do
+    for i, b in ipairs( bones ) do
         local bone = vehicle.befHBones[i]
 
         if bone then
@@ -931,20 +929,20 @@ function BlackterioExtraFunctions:UpdateGearLeverH(vehicle, config)
             hAng[1] = ax[1] * x + ay[1] * y
             hAng[2] = ax[2] * x + ay[2] * y
             hAng[3] = ax[3] * x + ay[3] * y
-            vehicle:ManipulateBoneAngles(bone, hAng)
+            vehicle:ManipulateBoneAngles( bone, hAng )
         end
     end
 
-    if h.poseX then vehicle:SetPoseParameter(h.poseX, x) end
-    if h.poseY then vehicle:SetPoseParameter(h.poseY, y) end
+    if h.poseX then vehicle:SetPoseParameter( h.poseX, x ) end
+    if h.poseY then vehicle:SetPoseParameter( h.poseY, y ) end
 end
 
 -- Engine animations: each entry is a looping pose parameter (0 to 1) that advances
 -- with the engine RPM. `speed` = cycles per engine revolution (keep it low, a real
 -- belt pattern would look strobed)
-function BlackterioExtraFunctions:UpdateEngineAnims(vehicle, config)
+function BlackterioExtraFunctions:UpdateEngineAnims( vehicle, config )
     local anims = config.engineAnims
-    if type(anims) ~= "table" then return end
+    if type( anims ) ~= "table" then return end
 
     local phases = vehicle.befEnginePhases
 
@@ -955,75 +953,75 @@ function BlackterioExtraFunctions:UpdateEngineAnims(vehicle, config)
 
     local rpm = vehicle:GetEngineState() > 0 and vehicle:GetEngineRPM() or 0
 
-    for i, anim in ipairs(anims) do
+    for i, anim in ipairs( anims ) do
         local phase = phases[i] or 0
 
         if rpm > 0 then
-            phase = (phase + rpm / 60 * (anim.speed or 0.25) * FrameTime()) % 1
+            phase = ( phase + rpm / 60 * ( anim.speed or 0.25 ) * FrameTime() ) % 1
             phases[i] = phase
         end
 
-        vehicle:SetPoseParameter(anim.pose, phase)
+        vehicle:SetPoseParameter( anim.pose, phase )
     end
 end
 
 -- Digital Speedometer (CLIENT ONLY)
 if CLIENT then
-    function BlackterioExtraFunctions:DrawDigitalSpeedometer(vehicle, config)
+    function BlackterioExtraFunctions:DrawDigitalSpeedometer( vehicle, config )
         -- Check if engine state requirement is met
-        if config.digitalSpeedoRequireEngine and (not vehicle:GetEngineState() or vehicle:GetEngineState() == 0) then
+        if config.digitalSpeedoRequireEngine and ( not vehicle:GetEngineState() or vehicle:GetEngineState() == 0 ) then
             return
         end
 
         -- Calculate speed based on unit
         local speedMultiplier = config.digitalSpeedoUnit == "MPH" and 0.04261363636 or 0.06858
-		-- MPH and KMH values from: https://github.com/wiremod/wire/blob/master/lua/entities/gmod_wire_speedometer.lua
+        -- MPH and KMH values from: https://github.com/wiremod/wire/blob/master/lua/entities/gmod_wire_speedometer.lua
         -- Longitudinal speed only: falling or sliding sideways shouldn't
         -- register on the speedometer.
-        local speed = math.floor(math.abs(vehicle:GetVelocity():Dot(vehicle:GetForward())) * speedMultiplier)
+        local speed = math.floor( math.abs( vehicle:GetVelocity():Dot( vehicle:GetForward() ) ) * speedMultiplier )
         local unitText = config.digitalSpeedoUnit == "MPH" and "MPH" or "KM/H"
 
         -- Custom fonts (digitalSpeedoFont) must be created by the vehicle
         -- author with surface.CreateFont before this is drawn.
 
         -- Calculate position and angle
-        local pos = vehicle:LocalToWorld(config.digitalSpeedoPos)
-        local ang = vehicle:LocalToWorldAngles(config.digitalSpeedoAng)
+        local pos = vehicle:LocalToWorld( config.digitalSpeedoPos )
+        local ang = vehicle:LocalToWorldAngles( config.digitalSpeedoAng )
 
         -- Draw 3D2D speedometer
-        cam.Start3D2D(pos, ang, config.digitalSpeedoScale)
-            local displayText = config.digitalSpeedoShowUnit and (speed .. " " .. unitText) or tostring(speed)
-            draw.SimpleText(displayText, config.digitalSpeedoFont, 0, 0, config.digitalSpeedoColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        cam.Start3D2D( pos, ang, config.digitalSpeedoScale )
+            local displayText = config.digitalSpeedoShowUnit and ( speed .. " " .. unitText ) or tostring( speed )
+            draw.SimpleText( displayText, config.digitalSpeedoFont, 0, 0, config.digitalSpeedoColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
         cam.End3D2D()
     end
 end
 
 -- Destination sign (CLIENT ONLY): LED panel with the text of the vehicle's DestinationText network var
 if CLIENT then
-    function BlackterioExtraFunctions:DrawDestinationSign(vehicle, config)
-        if not config.destinationSign or not isfunction(vehicle.GetDestinationText) then return end
+    function BlackterioExtraFunctions:DrawDestinationSign( vehicle, config )
+        if not config.destinationSign or not isfunction( vehicle.GetDestinationText ) then return end
 
         if config.destinationSignRequirePower and vehicle:GetEngineState() == 0 and vehicle:GetHeadlightState() == 0 then
             return
         end
 
         local text = vehicle:GetDestinationText() or ""
-        local lineNumber = isfunction(vehicle.GetDestinationLine) and vehicle:GetDestinationLine() or ""
+        local lineNumber = isfunction( vehicle.GetDestinationLine ) and vehicle:GetDestinationLine() or ""
         if text == "" and lineNumber == "" then return end
 
         local drawDist = config.destinationSignDrawDistance
-        if EyePos():DistToSqr(vehicle:GetPos()) > drawDist * drawDist then return end
+        if EyePos():DistToSqr( vehicle:GetPos() ) > drawDist * drawDist then return end
 
         local w, h = config.destinationSignWidth, config.destinationSignHeight
-        local pos = vehicle:LocalToWorld(config.destinationSignPos)
-        local ang = vehicle:LocalToWorldAngles(config.destinationSignAng)
+        local pos = vehicle:LocalToWorld( config.destinationSignPos )
+        local ang = vehicle:LocalToWorldAngles( config.destinationSignAng )
         local showBackground = config.destinationSignShowBackground
 
         -- Text color: the one picked in Edit Properties, or the config color if none was picked (0, 0, 0)
         local textColor = config.destinationSignColor
         local tr, tg, tb = textColor.r, textColor.g, textColor.b
 
-        if isfunction(vehicle.GetDestinationColor) then
+        if isfunction( vehicle.GetDestinationColor ) then
             local picked = vehicle:GetDestinationColor()
 
             if picked.x > 0 or picked.y > 0 or picked.z > 0 then
@@ -1031,10 +1029,10 @@ if CLIENT then
             end
         end
 
-        cam.Start3D2D(pos, ang, config.destinationSignScale)
+        cam.Start3D2D( pos, ang, config.destinationSignScale )
             if showBackground then
-                surface.SetDrawColor(config.destinationSignBackground)
-                surface.DrawRect(0, 0, w, h)
+                surface.SetDrawColor( config.destinationSignBackground )
+                surface.DrawRect( 0, 0, w, h )
             end
 
             -- Line number: fixed on the left, the destination uses the rest of the sign
@@ -1042,20 +1040,20 @@ if CLIENT then
 
             if lineNumber ~= "" then
                 local lineFont = config.destinationSignLineFont
-                surface.SetFont(lineFont)
-                local lw, lh = surface.GetTextSize(lineNumber)
+                surface.SetFont( lineFont )
+                local lw, lh = surface.GetTextSize( lineNumber )
                 local pad = config.destinationSignLinePadding
-                local boxW = config.destinationSignLineWidth > 0 and config.destinationSignLineWidth or (lw + pad * 2)
+                local boxW = config.destinationSignLineWidth > 0 and config.destinationSignLineWidth or ( lw + pad * 2 )
 
                 local lineColor = config.destinationSignLineColor
 
                 if lineColor then
-                    surface.SetTextColor(lineColor)
+                    surface.SetTextColor( lineColor )
                 else
-                    surface.SetTextColor(tr, tg, tb, 255)
+                    surface.SetTextColor( tr, tg, tb, 255 )
                 end
-                surface.SetTextPos((boxW - lw) * 0.5, (h - lh) * 0.5)
-                surface.DrawText(lineNumber)
+                surface.SetTextPos( ( boxW - lw ) * 0.5, ( h - lh ) * 0.5 )
+                surface.DrawText( lineNumber )
 
                 areaX, areaW = boxW, w - boxW
             end
@@ -1063,41 +1061,41 @@ if CLIENT then
             -- Destination: lines are separated by "|" and centered on the area
             local lines = {}
 
-            for part in string.gmatch(text, "[^|]+") do
-                part = string.Trim(part)
+            for part in string.gmatch( text, "[^|]+" ) do
+                part = string.Trim( part )
                 if part ~= "" then lines[#lines + 1] = part end
             end
 
-            surface.SetFont(config.destinationSignFont)
-            surface.SetTextColor(tr, tg, tb, 255)
+            surface.SetFont( config.destinationSignFont )
+            surface.SetTextColor( tr, tg, tb, 255 )
 
             if #lines == 1 then
                 local line = lines[1]
-                local tw, th = surface.GetTextSize(line)
+                local tw, th = surface.GetTextSize( line )
                 local x
 
                 if tw <= areaW - 20 then
-                    x = areaX + (areaW - tw) * 0.5
+                    x = areaX + ( areaW - tw ) * 0.5
                 else
                     -- Marquee: the text scrolls from right to left
                     local span = tw + areaW
-                    x = areaX + areaW - (CurTime() * config.destinationSignMarqueeSpeed) % span
+                    x = areaX + areaW - ( CurTime() * config.destinationSignMarqueeSpeed ) % span
                 end
 
                 -- Only draw the part of the text inside the area
                 if x >= areaX and x + tw <= areaX + areaW then
-                    surface.SetTextPos(x, (h - th) * 0.5)
-                    surface.DrawText(line)
+                    surface.SetTextPos( x, ( h - th ) * 0.5 )
+                    surface.DrawText( line )
                 else
                     local cx = x
 
-                    for _, c in utf8.codes(line) do
-                        local ch = utf8.char(c)
-                        local cw = surface.GetTextSize(ch)
+                    for _, c in utf8.codes( line ) do
+                        local ch = utf8.char( c )
+                        local cw = surface.GetTextSize( ch )
 
                         if cx >= areaX and cx + cw <= areaX + areaW then
-                            surface.SetTextPos(cx, (h - th) * 0.5)
-                            surface.DrawText(ch)
+                            surface.SetTextPos( cx, ( h - th ) * 0.5 )
+                            surface.DrawText( ch )
                         end
 
                         cx = cx + cw
@@ -1105,25 +1103,26 @@ if CLIENT then
                 end
             elseif #lines > 1 then
                 -- Several lines: all the same size, shrunk to fit the height and the widest line (no marquee)
-                local _, th = surface.GetTextSize("A")
+                local _, th = surface.GetTextSize( "A" )
                 local maxW = 0
 
-                for _, line in ipairs(lines) do
-                    maxW = math.max(maxW, (surface.GetTextSize(line)))
+                for _, line in ipairs( lines ) do
+                    local lw = surface.GetTextSize( line )
+                    maxW = math.max( maxW, lw )
                 end
 
-                local scale = math.min(1, (h * 0.9) / (#lines * th), (areaW - 20) / maxW)
+                local scale = math.min( 1, ( h * 0.9 ) / ( #lines * th ), ( areaW - 20 ) / maxW )
                 local m = Matrix()
-                m:Translate(Vector(areaX + areaW * 0.5, h * 0.5, 0))
-                m:Scale(Vector(scale, scale, 1))
+                m:Translate( Vector( areaX + areaW * 0.5, h * 0.5, 0 ) )
+                m:Scale( Vector( scale, scale, 1 ) )
 
-                cam.PushModelMatrix(m, true) -- multiply: keep the 3D2D transform
+                cam.PushModelMatrix( m, true ) -- multiply: keep the 3D2D transform
                     local top = -#lines * th * 0.5
 
-                    for i, line in ipairs(lines) do
-                        local tw = surface.GetTextSize(line)
-                        surface.SetTextPos(-tw * 0.5, top + (i - 1) * th)
-                        surface.DrawText(line)
+                    for i, line in ipairs( lines ) do
+                        local tw = surface.GetTextSize( line )
+                        surface.SetTextPos( -tw * 0.5, top + ( i - 1 ) * th )
+                        surface.DrawText( line )
                     end
                 cam.PopModelMatrix()
             end
@@ -1133,14 +1132,14 @@ if CLIENT then
             local gridColor = config.destinationSignGridColor
 
             if showBackground and grid > 0 and gridColor.a > 0 then
-                surface.SetDrawColor(gridColor)
+                surface.SetDrawColor( gridColor )
 
                 for gx = 0, w, grid do
-                    surface.DrawRect(gx, 0, 2, h)
+                    surface.DrawRect( gx, 0, 2, h )
                 end
 
                 for gy = 0, h, grid do
-                    surface.DrawRect(0, gy, w, 2)
+                    surface.DrawRect( 0, gy, w, 2 )
                 end
             end
         cam.End3D2D()
@@ -1148,13 +1147,13 @@ if CLIENT then
 end
 
 -- Helper function to make custom configurations
-function BlackterioExtraFunctions:CreateConfig(customConfig)
-    local config = table.Copy(self.DefaultConfig)
+function BlackterioExtraFunctions:CreateConfig( customConfig )
+    local config = table.Copy( self.DefaultConfig )
 
     if customConfig then
-        for k, v in pairs(customConfig) do
-            if type(v) == "table" and type(config[k]) == "table" then
-                for k2, v2 in pairs(v) do
+        for k, v in pairs( customConfig ) do
+            if type( v ) == "table" and type( config[k] ) == "table" then
+                for k2, v2 in pairs( v ) do
                     config[k][k2] = v2
                 end
             else
@@ -1173,24 +1172,24 @@ end
 --   speedLimit = true       -> ENT:GetSpeedLimit / SetSpeedLimit (Int, km/h as the Glide HUD shows them, 0 = no limit, for the speed limiter)
 --   destinationLine = true  -> ENT:GetDestinationLine / SetDestinationLine (String, line number shown fixed at the left of the destination sign)
 -- `category` is the Edit Properties category and `order` the position of the first entry (the next one uses order + 1).
-function BlackterioExtraFunctions:AddEditableVars(vehicle, options)
+function BlackterioExtraFunctions:AddEditableVars( vehicle, options )
     options = options or {}
 
     local category = options.category or "Extra Functions"
     local order = options.order or 201
 
     if options.destinationText then
-        vehicle:NetworkVar("String", "DestinationText", { KeyName = "destinationtext", Edit = { type = "Generic", order = order, waitforenter = true, category = category } })
+        vehicle:NetworkVar( "String", "DestinationText", { KeyName = "destinationtext", Edit = { type = "Generic", order = order, waitforenter = true, category = category } } )
 
         -- Always editable with the destination sign. (0, 0, 0) = none picked: the sign uses config.destinationSignColor
-        vehicle:NetworkVar("Vector", "DestinationColor", { KeyName = "destinationcolor", Edit = { type = "VectorColor", order = order + 3, category = category } })
+        vehicle:NetworkVar( "Vector", "DestinationColor", { KeyName = "destinationcolor", Edit = { type = "VectorColor", order = order + 3, category = category } } )
     end
 
     if options.speedLimit then
-        vehicle:NetworkVar("Int", "SpeedLimit", { KeyName = "speedlimit", Edit = { type = "Int", order = order + 1, min = 0, max = options.speedLimitMax or 500, category = category } })
+        vehicle:NetworkVar( "Int", "SpeedLimit", { KeyName = "speedlimit", Edit = { type = "Int", order = order + 1, min = 0, max = options.speedLimitMax or 500, category = category } } )
     end
 
     if options.destinationLine then
-        vehicle:NetworkVar("String", "DestinationLine", { KeyName = "destinationline", Edit = { type = "Generic", order = order + 2, waitforenter = true, category = category } })
+        vehicle:NetworkVar( "String", "DestinationLine", { KeyName = "destinationline", Edit = { type = "Generic", order = order + 2, waitforenter = true, category = category } } )
     end
 end

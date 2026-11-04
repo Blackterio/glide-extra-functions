@@ -19,19 +19,19 @@ BlackterioCustomAnims = BlackterioCustomAnims or {}
 
 -- Default sounds
 
-	local INITIAL_DEFAULT_SOUND = "blackterios_glide_vehicles/doors/busopen.wav"
-	local FINISH_DEFAULT_SOUND  = "blackterios_glide_vehicles/doors/busclose.wav"
+    local INITIAL_DEFAULT_SOUND = "blackterios_glide_vehicles/doors/busopen.wav"
+    local FINISH_DEFAULT_SOUND  = "blackterios_glide_vehicles/doors/busclose.wav"
 
-	--[[
-	Other available sounds in this addon:
+    --[[
+    Other available sounds in this addon:
 
-	"blackterios_glide_vehicles/doors/caropen.wav"
-	"blackterios_glide_vehicles/doors/carclose.wav"
-	"blackterios_glide_vehicles/doors/trunkhoodopen.wav"
-	"blackterios_glide_vehicles/doors/trunkhoodclose.wav"
-	"blackterios_glide_vehicles/doors/airrelease.mp3" // this was the original bus door sound before changing to the improved system
+    "blackterios_glide_vehicles/doors/caropen.wav"
+    "blackterios_glide_vehicles/doors/carclose.wav"
+    "blackterios_glide_vehicles/doors/trunkhoodopen.wav"
+    "blackterios_glide_vehicles/doors/trunkhoodclose.wav"
+    "blackterios_glide_vehicles/doors/airrelease.mp3" // this was the original bus door sound before changing to the improved system
 
-	--]]
+    --]]
 
 
 -- Global cooldown (seconds) applied to every animation toggle.
@@ -401,16 +401,16 @@ function BlackterioCustomAnims.UpdateAnimations( vehicle )
                 local newValue = startValue + ( targetValue - startValue ) * t
 
                 if progress >= 1 then
-                    local soundFollowsDuration = GetAnimParam( config, paramName, "soundFollowsDuration" )
-                    if soundFollowsDuration and targetValue == 0 and startValue > 0.001 then
-                        local override = config.animOverrides and config.animOverrides[paramName]
-                        local snd = ( override and override.customFinishSound ) or config.finishSound
-                        if snd and snd ~= "" and not finishSoundsFired[snd] then
-                            vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )
-                            finishSoundsFired[snd] = true
-                        end
-                    end
                     newValue = targetValue
+
+                    local soundFollowsDuration = GetAnimParam( config, paramName, "soundFollowsDuration" )
+                    local override = config.animOverrides and config.animOverrides[paramName]
+                    local snd = ( override and override.customFinishSound ) or config.finishSound
+
+                    if soundFollowsDuration and startValue > 0.001 and snd and snd ~= "" and not finishSoundsFired[snd] then
+                        vehicle:EmitSound( snd, 70, 100, 1, CHAN_AUTO )
+                        finishSoundsFired[snd] = true
+                    end
                 end
 
                 data.poseValues[i] = newValue
