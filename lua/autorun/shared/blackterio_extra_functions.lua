@@ -178,6 +178,31 @@ BlackterioExtraFunctions.DefaultConfig = {
     destinationSignDrawDistance = 3000,
     destinationSignRequirePower = true, -- Only lit with the engine on or the headlights on
 
+    -- Painted text (off by default): the text looks painted on the vehicle instead of lit. It is always visible (no power needed),
+    -- never scrolls, has no dot matrix grid, and the light that reaches the sign (map, sun, dynamic lights) darkens it, like a real paint.
+    -- It fills the whole sign (destinationSignWidth x destinationSignHeight): every line stretches or squeezes on its own width and height until the letters touch the edges.
+    -- To leave a margin, make the sign a little smaller. The color picked in Edit Properties still wins over destinationSignPaintedColor.
+    destinationSignPainted = false,
+    destinationSignPaintedFont = "BlackterioDefaultPaintedSign", -- Custom fonts must be created by the vehicle author with surface.CreateFont (the shape of its letters is assumed like Arial's)
+    destinationSignPaintedColor = Color( 20, 20, 20 ),
+
+    -- Curvature of the sign around its vertical axis, from -1 to 1. 0 = flat. Positive curves it forward (the center stays where the flat sign was and the ends go back),
+    -- negative curves it back. 1 is an arc of 45 degrees (the ends turn 22.5). The curve fades out with the distance (full up to 400 units, flat from 800)
+    destinationSignCurvature = 0,
+
+    -- What a sign shows: "all" = line number at the left and the destination, "text" = only the destination, "line" = only the line number (centered, on the whole sign)
+    destinationSignContent = "all",
+
+    -- Several signs: a list of { id = "front", destinationSignPos = ..., any other destinationSign* key }. Each sign starts from this config and changes the keys it lists.
+    -- Empty = this config is the only sign. destinationSign = true here turns the feature on for all of them.
+    destinationSigns = {},
+
+    -- Changes a sign depending on the skin and the bodygroups (like License Plates' LicensePlateAdvancedConfigs). The first variant that matches a sign wins:
+    --   { id = "front", skin = 7, bodygroup = { 17, 1 }, destinationSignPos = ..., destinationSignPainted = true, destinationSign = false ... }
+    -- id (a sign of destinationSigns; "main" is the only sign when destinationSigns is empty), skin and bodygroup = { group id, submodel } are optional: the ones given must all match.
+    -- The other keys are destinationSign* overrides.
+    destinationSignVariants = {},
+
     -- Speed limiter: the torque fades out over the last speedLimiterFade (fraction) before the limit. Forward only.
     -- The limit in km/h is read from the vehicle (ENT:GetSpeedLimit, see AddEditableVars) or from speedLimit if it doesn't have one. 0 = no limit
     speedLimit = 0,
@@ -231,6 +256,14 @@ if CLIENT then
         size = 78,
         weight = 900,
         antialias = false,
+    } )
+
+    -- Painted text: the biggest bold font the engine allows (255 is its limit), so stretching it over the sign blurs the edges as little as possible
+    surface.CreateFont( "BlackterioDefaultPaintedSign", {
+        font = "Arial",
+        size = 255,
+        weight = 900,
+        antialias = true,
     } )
 end
 
@@ -988,6 +1021,9 @@ if CLIENT then
         local pos = vehicle:LocalToWorld( config.digitalSpeedoPos )
         local ang = vehicle:LocalToWorldAngles( config.digitalSpeedoAng )
 
+        -- 3D2D text can't be seen from behind: don't draw it then
+        if ang:Up():Dot( EyePos() - pos ) <= 0 then return end
+
         -- Draw 3D2D speedometer
         cam.Start3D2D( pos, ang, config.digitalSpeedoScale )
             local displayText = config.digitalSpeedoShowUnit and ( speed .. " " .. unitText ) or tostring( speed )
@@ -996,29 +1032,438 @@ if CLIENT then
     end
 end
 
--- Destination sign (CLIENT ONLY): LED panel with the text of the vehicle's DestinationText network var
+-- Destination signs (CLIENT ONLY): LED panels, or painted text, that show the DestinationText / DestinationLine / DestinationColor network vars.
+-- One sign by default (the config itself). `config.destinationSigns` lists several: each one has an `id` and its own destinationSign* keys, on top of the base config.
+-- `config.destinationSignVariants` changes a sign (position, angle, painted text, hidden...) depending on the skin and the bodygroups, like License Plates does.
 if CLIENT then
-    function BlackterioExtraFunctions:DrawDestinationSign( vehicle, config )
-        if not config.destinationSign or not isfunction( vehicle.GetDestinationText ) then return end
+    -- Keys of a sign entry / variant that choose the sign or the moment, not config overrides
+    local SIGN_SKIP = { id = true }
+    local VARIANT_SKIP = { id = true, skin = true, bodygroup = true }
 
-        if config.destinationSignRequirePower and vehicle:GetEngineState() == 0 and vehicle:GetHeadlightState() == 0 then
+    -- { [config] = { [sign] = { base = config of the sign, [variant] = config of the sign with that variant } } }, built once
+    local signCaches = setmetatable( {}, { __mode = "k" } )
+
+    -- Shallow copy of `base` with the keys of `overrides` on top
+    local function MergeConfig( base, overrides, skip )
+        local merged = {}
+
+        for k, v in pairs( base ) do
+            merged[k] = v
+        end
+
+        for k, v in pairs( overrides ) do
+            if not skip[k] then merged[k] = v end
+        end
+
+        return merged
+    end
+
+    -- A variant applies when its id (if it has one), its skin (if it has one) and its bodygroup { id, submodel } (if it has one) match
+    local function VariantMatches( vehicle, variant, signId )
+        if variant.id ~= nil and variant.id ~= signId then return false end
+        if variant.skin ~= nil and vehicle:GetSkin() ~= variant.skin then return false end
+
+        local bodygroup = variant.bodygroup
+        if bodygroup and vehicle:GetBodygroup( bodygroup[1] ) ~= bodygroup[2] then return false end
+
+        return true
+    end
+
+    -- Config to draw one sign with: the sign (nil = the base config is the only sign) plus the first variant that matches
+    local function ResolveSign( vehicle, config, sign, signId )
+        local variants = config.destinationSignVariants
+        local hasVariants = variants ~= nil and #variants > 0
+
+        if not sign and not hasVariants then return config end
+
+        local cache = signCaches[config]
+
+        if not cache then
+            cache = {}
+            signCaches[config] = cache
+        end
+
+        local entry = cache[sign or config]
+
+        if not entry then
+            entry = { base = sign and MergeConfig( config, sign, SIGN_SKIP ) or config }
+            cache[sign or config] = entry
+        end
+
+        if hasVariants then
+            for i = 1, #variants do
+                local variant = variants[i]
+
+                if VariantMatches( vehicle, variant, signId ) then
+                    local resolved = entry[variant]
+
+                    if not resolved then
+                        resolved = MergeConfig( entry.base, variant, VARIANT_SKIP )
+                        entry[variant] = resolved
+                    end
+
+                    return resolved
+                end
+            end
+        end
+
+        return entry.base
+    end
+
+    -- Where the ink of capitals and digits is inside the line of the painted font (measured on Arial): top and bottom as a fraction of the line
+    -- (the bottom goes down to 1 with descenders) and the empty space at each side of a text
+    local INK_TOP, INK_BOTTOM, INK_SIDE = 0.185, 0.825, 0.037
+    local DESCENDERS = "[gjpqyQ,;]"
+
+    -- Vertical scale that makes the ink of the lines fill `boxH` (surface font already set). Returns the height of one line too
+    local function PaintedScaleY( lines, boxH )
+        local _, th = surface.GetTextSize( "A" )
+        local bottom = string.find( lines[#lines], DESCENDERS ) and 1 or INK_BOTTOM
+
+        return boxH / ( ( #lines - 1 ) * th + ( bottom - INK_TOP ) * th ), th
+    end
+
+    -- Reused by every painted line (the signs are drawn one after another): no new objects per frame
+    local lineMatrix, lineTranslate, lineScale = Matrix(), Vector(), Vector( 1, 1, 1 )
+
+    -- Painted text: every line stretches or squeezes on its own width and the block on its height, until the ink fills a box of boxW x boxH
+    -- that is centered on centerX and starts at the top of the sign (surface font and color already set)
+    local function DrawPaintedLines( lines, centerX, boxW, boxH )
+        local sy, th = PaintedScaleY( lines, boxH )
+
+        for i, line in ipairs( lines ) do
+            local tw = surface.GetTextSize( line )
+
+            lineTranslate.x = centerX
+            lineScale.x, lineScale.y = boxW / ( tw - INK_SIDE * 2 * th ), sy
+            lineMatrix:Identity()
+            lineMatrix:SetTranslation( lineTranslate )
+            lineMatrix:SetScale( lineScale )
+
+            cam.PushModelMatrix( lineMatrix, true ) -- multiply: keep the 3D2D transform
+                surface.SetTextPos( -tw * 0.5, ( i - 1 ) * th - INK_TOP * th )
+                surface.DrawText( line )
+            cam.PopModelMatrix()
+        end
+    end
+
+    -- ===== Culling, level of detail, curvature and the caches of the signs =====
+    -- New on every load of this file: the caches that vehicles keep from an older load are rebuilt, never reused
+    local CACHE_TOKEN = {}
+    local WEAK_KEYS = { __mode = "k" }
+
+    local ARC_AT_FULL_CURVATURE = 45 -- degrees of arc of a sign with destinationSignCurvature = 1 (the ends turn half of it)
+    local STRIP_ANGLE = 3 -- degrees of arc of every flat strip of a curved sign
+    local MAX_STRIPS = 32
+    local LOD_LEVELS = 8 -- the curve fades out in this many steps with the distance (each step has its own cached strips)
+    local LOD_NEAR, LOD_FAR = 400, 800 -- units: full curve up to LOD_NEAR, flat from LOD_FAR
+    local FADE_FRACTION = 0.15 -- the last part of destinationSignDrawDistance fades out instead of cutting
+
+    -- What a sign draws, filled for every sign (they are drawn one after another)
+    local ctx = {}
+
+    -- Parses the destination text in lines (separated by "|"). The result is kept in the cache of the sign until the text changes
+    local function ParseLines( text )
+        local lines = {}
+
+        for part in string.gmatch( text, "[^|]+" ) do
+            part = string.Trim( part )
+            if part ~= "" then lines[#lines + 1] = part end
+        end
+
+        return lines
+    end
+
+    -- Geometry of one sign in the coordinates of the vehicle, kept on the vehicle. It is checked against the values of the config on every frame
+    -- (position, angle, scale, size and curvature), so changing any of them rebuilds it. Texts are not part of it
+    local function GetGeometry( vehicle, config )
+        local store = vehicle.befSignGeo
+
+        if not store or store.token ~= CACHE_TOKEN then
+            store = setmetatable( { token = CACHE_TOKEN }, WEAK_KEYS )
+            vehicle.befSignGeo = store
+        end
+
+        local pos, ang = config.destinationSignPos, config.destinationSignAng
+        local scale, w, h, curv = config.destinationSignScale, config.destinationSignWidth, config.destinationSignHeight, config.destinationSignCurvature or 0
+        local geo = store[config]
+
+        if geo and geo.pos == pos and geo.ang == ang and geo.scale == scale and geo.w == w and geo.h == h and geo.curvRaw == curv then
+            return geo
+        end
+
+        geo = { pos = Vector( pos ), ang = Angle( ang ), scale = scale, w = w, h = h, curvRaw = curv, curv = math.Clamp( curv, -1, 1 ), levels = {} }
+
+        local widthUnits, heightUnits = w * scale, h * scale
+        local right, down, normal = geo.ang:Forward(), geo.ang:Right(), geo.ang:Up()
+
+        geo.center = geo.pos + right * ( widthUnits * 0.5 ) + down * ( heightUnits * 0.5 )
+        geo.normal = normal
+
+        -- Bounding sphere of the sign (with the sag of the curve) and how far past 90 degrees the ends of a curved sign can still be seen
+        local arc = math.rad( math.abs( geo.curv ) * ARC_AT_FULL_CURVATURE )
+        local sag = arc > 1e-4 and ( widthUnits / arc ) * ( 1 - math.cos( arc * 0.5 ) ) or 0
+
+        geo.radius = 0.5 * math.sqrt( widthUnits * widthUnits + heightUnits * heightUnits ) + sag + 5
+        geo.facingMargin = -math.sin( arc * 0.5 )
+
+        store[config] = geo
+
+        return geo
+    end
+
+    -- Strips of a curved sign at one level of detail: flat pieces tangent to a circular arc, each one cut by the plane that bisects it with its neighbors,
+    -- so the pieces meet at a line without gaps or overlaps. The center of the sign stays where the flat sign was, the ends go back (positive
+    -- curvature) or forward (negative). Returns false when the arc is so small that a flat sign is the same
+    local function BuildLevel( geo, level )
+        local curvature = geo.curv * level / LOD_LEVELS
+        local arc = math.rad( math.abs( curvature ) * ARC_AT_FULL_CURVATURE )
+        local count = math.Clamp( math.ceil( math.deg( arc ) / STRIP_ANGLE ), 1, MAX_STRIPS )
+
+        if count <= 1 then return false end
+
+        local right, normal = geo.ang:Forward(), geo.ang:Up()
+        local scale = geo.scale
+        local widthUnits = geo.w * scale
+        local radius = widthUnits / arc
+        local sign = curvature >= 0 and 1 or -1
+        local arcStep = widthUnits / count -- arc length of one strip
+        local halfChord = radius * math.tan( arc / count * 0.5 ) -- from the point where a strip touches the arc to the line where it meets the next one
+
+        -- First the tangent point, the direction along the strip and the normal of every strip
+        local points, tangents, bents = {}, {}, {}
+
+        for i = 1, count do
+            local phi = ( ( i - 0.5 ) * arcStep - widthUnits * 0.5 ) / radius -- angle from the center of the sign to the middle of the strip
+            local sinPhi, cosPhi = math.sin( phi ), math.cos( phi )
+
+            points[i] = geo.pos + right * ( widthUnits * 0.5 + radius * sinPhi ) - normal * ( sign * radius * ( 1 - cosPhi ) )
+            tangents[i] = right * cosPhi - normal * ( sign * sinPhi )
+            bents[i] = normal * cosPhi + right * ( sign * sinPhi )
+        end
+
+        -- Then, for every strip: where it starts, which part of the sign it shows, and the planes that cut it (none at the ends of the sign)
+        local strips = {}
+        local overlap = 0.03 -- units: every strip goes a little past its planes, so no crack shows between two of them
+
+        for i = 1, count do
+            local first, last = i == 1, i == count
+            local before, after = first and arcStep * 0.5 or halfChord, last and arcStep * 0.5 or halfChord
+            local start = points[i] - tangents[i] * before
+            local strip = { pos = start, ang = tangents[i]:AngleEx( bents[i] ), u0 = ( ( i - 0.5 ) * arcStep - before ) / scale }
+
+            if not first then
+                local bisector = tangents[i - 1] + tangents[i]
+                bisector:Normalize()
+
+                strip.leftNormal, strip.leftPoint = bisector, start - bisector * overlap
+            end
+
+            if not last then
+                local bisector = tangents[i] + tangents[i + 1]
+                bisector:Normalize()
+
+                strip.rightNormal, strip.rightPoint = -bisector, points[i] + tangents[i] * after + bisector * overlap
+            end
+
+            strips[i] = strip
+        end
+
+        return { strips = strips }
+    end
+
+    -- Everything one sign draws inside its 3D2D space (or inside every strip of a curved one): reads ctx
+    local function DrawBody( c )
+        local config, painted, w, h = c.config, c.painted, c.w, c.h
+        local lr, lg, lb = c.lr, c.lg, c.lb
+        local tr, tg, tb = c.tr, c.tg, c.tb
+        local lineNumber, lines = c.lineNumber, c.lines
+
+        if config.destinationSignShowBackground then
+            local bg = config.destinationSignBackground
+            surface.SetDrawColor( bg.r * lr, bg.g * lg, bg.b * lb, bg.a )
+            surface.DrawRect( 0, 0, w, h )
+        end
+
+        -- Line number: fixed on the left, the destination uses the rest of the sign
+        local areaX, areaW = 0, w
+
+        if lineNumber ~= "" then
+            surface.SetFont( c.lineFont )
+            local lw, lh = surface.GetTextSize( lineNumber )
+            local pad = config.destinationSignLinePadding
+            local boxW = config.destinationSignLineWidth > 0 and config.destinationSignLineWidth or ( lw + pad * 2 )
+
+            local lineColor = config.destinationSignLineColor
+
+            if lineColor then
+                surface.SetTextColor( lineColor.r * lr, lineColor.g * lg, lineColor.b * lb, lineColor.a )
+            else
+                surface.SetTextColor( tr * lr, tg * lg, tb * lb, 255 )
+            end
+
+            if painted then
+                -- Painted: the number fills the height of the sign. Its width keeps the proportion of the letters (up to a third of the sign),
+                -- or fills destinationSignLineWidth when it has one
+                local lineLines = c.lineLines
+                local sy, th = PaintedScaleY( lineLines, h )
+                local inkW = lw - INK_SIDE * 2 * th
+                local inkBoxW = config.destinationSignLineWidth > 0 and ( boxW - pad * 2 ) or math.min( inkW * sy, w * 0.33 )
+
+                boxW = inkBoxW + pad * 2
+                DrawPaintedLines( lineLines, boxW * 0.5, inkBoxW, h )
+            else
+                surface.SetTextPos( ( boxW - lw ) * 0.5, ( h - lh ) * 0.5 )
+                surface.DrawText( lineNumber )
+            end
+
+            areaX, areaW = boxW, w - boxW
+        end
+
+        -- Destination: lines are separated by "|" and centered on the area
+        surface.SetFont( c.textFont )
+        surface.SetTextColor( tr * lr, tg * lg, tb * lb, 255 )
+
+        if painted then
+            if #lines > 0 then DrawPaintedLines( lines, areaX + areaW * 0.5, areaW, h ) end
+        elseif #lines == 1 then
+            local line = lines[1]
+            local tw, th = surface.GetTextSize( line )
+            local x
+
+            if tw <= areaW - 20 then
+                x = areaX + ( areaW - tw ) * 0.5
+            else
+                -- Marquee: the text scrolls from right to left
+                local span = tw + areaW
+                x = areaX + areaW - ( CurTime() * config.destinationSignMarqueeSpeed ) % span
+            end
+
+            -- Only draw the part of the text inside the area
+            if x >= areaX and x + tw <= areaX + areaW then
+                surface.SetTextPos( x, ( h - th ) * 0.5 )
+                surface.DrawText( line )
+            else
+                local cx = x
+
+                for _, code in utf8.codes( line ) do
+                    local ch = utf8.char( code )
+                    local cw = surface.GetTextSize( ch )
+
+                    if cx >= areaX and cx + cw <= areaX + areaW then
+                        surface.SetTextPos( cx, ( h - th ) * 0.5 )
+                        surface.DrawText( ch )
+                    end
+
+                    cx = cx + cw
+                end
+            end
+        elseif #lines > 1 then
+            -- Several lines: all the same size, shrunk to fit the height and the widest line (no marquee)
+            local _, th = surface.GetTextSize( "A" )
+            local maxW = 0
+
+            for _, line in ipairs( lines ) do
+                local lw = surface.GetTextSize( line )
+                maxW = math.max( maxW, lw )
+            end
+
+            local scale = math.min( 1, ( h * 0.9 ) / ( #lines * th ), ( areaW - 20 ) / maxW )
+            local m = Matrix()
+            m:Translate( Vector( areaX + areaW * 0.5, h * 0.5, 0 ) )
+            m:Scale( Vector( scale, scale, 1 ) )
+
+            cam.PushModelMatrix( m, true ) -- multiply: keep the 3D2D transform
+                local top = -#lines * th * 0.5
+
+                for i, line in ipairs( lines ) do
+                    local tw = surface.GetTextSize( line )
+                    surface.SetTextPos( -tw * 0.5, top + ( i - 1 ) * th )
+                    surface.DrawText( line )
+                end
+            cam.PopModelMatrix()
+        end
+
+        -- Dot matrix look (only on the LED sign with a background: on a transparent sign the grid would float in the air)
+        local grid = config.destinationSignGridSize
+        local gridColor = config.destinationSignGridColor
+
+        if config.destinationSignShowBackground and not painted and grid > 0 and gridColor.a > 0 then
+            surface.SetDrawColor( gridColor )
+
+            for gx = 0, w, grid do
+                surface.DrawRect( gx, 0, 2, h )
+            end
+
+            for gy = 0, h, grid do
+                surface.DrawRect( 0, gy, w, 2 )
+            end
+        end
+    end
+
+    -- Painted text is not a light source: the light that reaches the sign (map, sun and dynamic lights) darkens its colors, like a real paint
+    local function SetPaintedLight( c, pos, normal )
+        local light = render.ComputeLighting( pos, normal )
+
+        -- The light is linear and the colors are not: ^ 1 / 2.2 gives the same brightness the engine shows on the models
+        c.lr, c.lg, c.lb = math.min( light.x, 1 ) ^ 0.4545, math.min( light.y, 1 ) ^ 0.4545, math.min( light.z, 1 ) ^ 0.4545
+    end
+
+    -- Reused by every strip of a curved sign: no new objects per frame
+    local stripMatrix, stripShift = Matrix(), Vector()
+
+    -- eye and eyeForward: the position and the direction of the camera in the coordinates of the vehicle (calculated once for all its signs)
+    local function DrawSign( vehicle, config, eye, eyeForward )
+        if not config.destinationSign then return end
+
+        local painted = config.destinationSignPainted
+
+        -- The LED sign needs power. Painted text is always visible
+        if not painted and config.destinationSignRequirePower and vehicle:GetEngineState() == 0 and vehicle:GetHeadlightState() == 0 then
             return
         end
 
         local text = vehicle:GetDestinationText() or ""
         local lineNumber = isfunction( vehicle.GetDestinationLine ) and vehicle:GetDestinationLine() or ""
+        local content = config.destinationSignContent
+
+        if content == "line" then
+            text, lineNumber = lineNumber, "" -- the number uses the whole sign, like a destination
+        elseif content == "text" then
+            lineNumber = ""
+        end
+
         if text == "" and lineNumber == "" then return end
 
+        -- Too far: nothing. The last part of the distance fades out first, so it doesn't pop
         local drawDist = config.destinationSignDrawDistance
-        if EyePos():DistToSqr( vehicle:GetPos() ) > drawDist * drawDist then return end
+        local vehicleDist = eye:Length()
 
-        local w, h = config.destinationSignWidth, config.destinationSignHeight
-        local pos = vehicle:LocalToWorld( config.destinationSignPos )
-        local ang = vehicle:LocalToWorldAngles( config.destinationSignAng )
-        local showBackground = config.destinationSignShowBackground
+        if vehicleDist > drawDist then return end
+
+        local geo = GetGeometry( vehicle, config )
+
+        -- Seen from behind (3D2D is invisible there, the ends of a curved sign can still be seen a little past 90 degrees) or behind the camera: nothing
+        local center, normal = geo.center, geo.normal
+        local dx, dy, dz = eye.x - center.x, eye.y - center.y, eye.z - center.z
+        local dist = math.sqrt( dx * dx + dy * dy + dz * dz )
+
+        if dx * normal.x + dy * normal.y + dz * normal.z <= geo.facingMargin * dist then return end
+        if -( dx * eyeForward.x + dy * eyeForward.y + dz * eyeForward.z ) < -geo.radius then return end
+
+        -- Lines of the text, parsed again only when the text changes
+        if geo.textSource ~= text then
+            geo.textSource = text
+            geo.lines = ParseLines( text )
+        end
+
+        if geo.lineSource ~= lineNumber then
+            geo.lineSource = lineNumber
+            geo.lineLines = { lineNumber }
+        end
 
         -- Text color: the one picked in Edit Properties, or the config color if none was picked (0, 0, 0)
-        local textColor = config.destinationSignColor
+        local textColor = painted and config.destinationSignPaintedColor or config.destinationSignColor
         local tr, tg, tb = textColor.r, textColor.g, textColor.b
 
         if isfunction( vehicle.GetDestinationColor ) then
@@ -1029,120 +1474,113 @@ if CLIENT then
             end
         end
 
-        cam.Start3D2D( pos, ang, config.destinationSignScale )
-            if showBackground then
-                surface.SetDrawColor( config.destinationSignBackground )
-                surface.DrawRect( 0, 0, w, h )
+        ctx.config, ctx.painted, ctx.w, ctx.h = config, painted, geo.w, geo.h
+        ctx.tr, ctx.tg, ctx.tb = tr, tg, tb
+        ctx.lr, ctx.lg, ctx.lb = 1, 1, 1
+        ctx.lineNumber, ctx.lines, ctx.lineLines = lineNumber, geo.lines, geo.lineLines
+        ctx.textFont = painted and config.destinationSignPaintedFont or config.destinationSignFont
+        ctx.lineFont = painted and config.destinationSignPaintedFont or config.destinationSignLineFont
+
+        -- The curve fades out with the distance (full up to LOD_NEAR, flat from LOD_FAR) in LOD_LEVELS steps, so it never pops and far signs are cheap
+        local level = 0
+
+        if geo.curv ~= 0 then
+            local t = math.Clamp( ( dist - LOD_NEAR ) / ( LOD_FAR - LOD_NEAR ), 0, 1 )
+            level = math.floor( ( 1 - t * t * ( 3 - 2 * t ) ) * LOD_LEVELS + 0.5 )
+        end
+
+        local curve
+
+        if level > 0 then
+            curve = geo.levels[level]
+
+            if curve == nil then
+                curve = BuildLevel( geo, level )
+                geo.levels[level] = curve
+            end
+        end
+
+        local fadeStart = drawDist * ( 1 - FADE_FRACTION )
+
+        if vehicleDist > fadeStart then surface.SetAlphaMultiplier( ( drawDist - vehicleDist ) / ( drawDist - fadeStart ) ) end
+
+        if curve then
+            local oldClipping = render.EnableClipping( true )
+            local scale, strips = geo.scale, curve.strips
+            local vehicleAngles = vehicle:GetAngles()
+
+            for i = 1, #strips do
+                local strip = strips[i]
+                local pos = vehicle:LocalToWorld( strip.pos )
+                local ang = vehicle:LocalToWorldAngles( strip.ang )
+                local planes = 0
+
+                if painted then SetPaintedLight( ctx, pos, ang:Up() ) end
+
+                -- Each strip only draws between the planes that bisect it with the strips next to it
+                if strip.leftNormal then
+                    local planeNormal = Vector( strip.leftNormal )
+                    planeNormal:Rotate( vehicleAngles )
+
+                    render.PushCustomClipPlane( planeNormal, planeNormal:Dot( vehicle:LocalToWorld( strip.leftPoint ) ) )
+                    planes = planes + 1
+                end
+
+                if strip.rightNormal then
+                    local planeNormal = Vector( strip.rightNormal )
+                    planeNormal:Rotate( vehicleAngles )
+
+                    render.PushCustomClipPlane( planeNormal, planeNormal:Dot( vehicle:LocalToWorld( strip.rightPoint ) ) )
+                    planes = planes + 1
+                end
+
+                cam.Start3D2D( pos, ang, scale )
+                    stripShift.x = -strip.u0
+                    stripMatrix:Identity()
+                    stripMatrix:SetTranslation( stripShift )
+
+                    cam.PushModelMatrix( stripMatrix, true )
+                        DrawBody( ctx )
+                    cam.PopModelMatrix()
+                cam.End3D2D()
+
+                for _ = 1, planes do
+                    render.PopCustomClipPlane()
+                end
             end
 
-            -- Line number: fixed on the left, the destination uses the rest of the sign
-            local areaX, areaW = 0, w
+            render.EnableClipping( oldClipping )
+        else
+            local pos = vehicle:LocalToWorld( config.destinationSignPos )
+            local ang = vehicle:LocalToWorldAngles( config.destinationSignAng )
 
-            if lineNumber ~= "" then
-                local lineFont = config.destinationSignLineFont
-                surface.SetFont( lineFont )
-                local lw, lh = surface.GetTextSize( lineNumber )
-                local pad = config.destinationSignLinePadding
-                local boxW = config.destinationSignLineWidth > 0 and config.destinationSignLineWidth or ( lw + pad * 2 )
+            if painted then SetPaintedLight( ctx, pos, ang:Up() ) end
 
-                local lineColor = config.destinationSignLineColor
+            cam.Start3D2D( pos, ang, geo.scale )
+                DrawBody( ctx )
+            cam.End3D2D()
+        end
 
-                if lineColor then
-                    surface.SetTextColor( lineColor )
-                else
-                    surface.SetTextColor( tr, tg, tb, 255 )
-                end
-                surface.SetTextPos( ( boxW - lw ) * 0.5, ( h - lh ) * 0.5 )
-                surface.DrawText( lineNumber )
+        if vehicleDist > fadeStart then surface.SetAlphaMultiplier( 1 ) end
+    end
 
-                areaX, areaW = boxW, w - boxW
+    function BlackterioExtraFunctions:DrawDestinationSign( vehicle, config )
+        -- destinationSign = true on the base config turns the feature on (a variant can then hide a sign with destinationSign = false)
+        if not config.destinationSign or not isfunction( vehicle.GetDestinationText ) then return end
+
+        -- The camera in the coordinates of the vehicle, once for all its signs
+        local eye = vehicle:WorldToLocal( EyePos() )
+        local eyeForward = vehicle:WorldToLocalAngles( EyeAngles() ):Forward()
+        local signs = config.destinationSigns
+
+        if signs and #signs > 0 then
+            for i = 1, #signs do
+                local sign = signs[i]
+                DrawSign( vehicle, ResolveSign( vehicle, config, sign, sign.id or i ), eye, eyeForward )
             end
-
-            -- Destination: lines are separated by "|" and centered on the area
-            local lines = {}
-
-            for part in string.gmatch( text, "[^|]+" ) do
-                part = string.Trim( part )
-                if part ~= "" then lines[#lines + 1] = part end
-            end
-
-            surface.SetFont( config.destinationSignFont )
-            surface.SetTextColor( tr, tg, tb, 255 )
-
-            if #lines == 1 then
-                local line = lines[1]
-                local tw, th = surface.GetTextSize( line )
-                local x
-
-                if tw <= areaW - 20 then
-                    x = areaX + ( areaW - tw ) * 0.5
-                else
-                    -- Marquee: the text scrolls from right to left
-                    local span = tw + areaW
-                    x = areaX + areaW - ( CurTime() * config.destinationSignMarqueeSpeed ) % span
-                end
-
-                -- Only draw the part of the text inside the area
-                if x >= areaX and x + tw <= areaX + areaW then
-                    surface.SetTextPos( x, ( h - th ) * 0.5 )
-                    surface.DrawText( line )
-                else
-                    local cx = x
-
-                    for _, c in utf8.codes( line ) do
-                        local ch = utf8.char( c )
-                        local cw = surface.GetTextSize( ch )
-
-                        if cx >= areaX and cx + cw <= areaX + areaW then
-                            surface.SetTextPos( cx, ( h - th ) * 0.5 )
-                            surface.DrawText( ch )
-                        end
-
-                        cx = cx + cw
-                    end
-                end
-            elseif #lines > 1 then
-                -- Several lines: all the same size, shrunk to fit the height and the widest line (no marquee)
-                local _, th = surface.GetTextSize( "A" )
-                local maxW = 0
-
-                for _, line in ipairs( lines ) do
-                    local lw = surface.GetTextSize( line )
-                    maxW = math.max( maxW, lw )
-                end
-
-                local scale = math.min( 1, ( h * 0.9 ) / ( #lines * th ), ( areaW - 20 ) / maxW )
-                local m = Matrix()
-                m:Translate( Vector( areaX + areaW * 0.5, h * 0.5, 0 ) )
-                m:Scale( Vector( scale, scale, 1 ) )
-
-                cam.PushModelMatrix( m, true ) -- multiply: keep the 3D2D transform
-                    local top = -#lines * th * 0.5
-
-                    for i, line in ipairs( lines ) do
-                        local tw = surface.GetTextSize( line )
-                        surface.SetTextPos( -tw * 0.5, top + ( i - 1 ) * th )
-                        surface.DrawText( line )
-                    end
-                cam.PopModelMatrix()
-            end
-
-            -- Dot matrix look (only with a background: on a transparent sign the grid would float in the air)
-            local grid = config.destinationSignGridSize
-            local gridColor = config.destinationSignGridColor
-
-            if showBackground and grid > 0 and gridColor.a > 0 then
-                surface.SetDrawColor( gridColor )
-
-                for gx = 0, w, grid do
-                    surface.DrawRect( gx, 0, 2, h )
-                end
-
-                for gy = 0, h, grid do
-                    surface.DrawRect( 0, gy, w, 2 )
-                end
-            end
-        cam.End3D2D()
+        else
+            DrawSign( vehicle, ResolveSign( vehicle, config, nil, "main" ), eye, eyeForward )
+        end
     end
 end
 

@@ -194,7 +194,7 @@ Everything below is **off by default** (`false` in the default config), so a veh
 | Turn signal stalk | `turnStalk = true` | pose `turnstalk` |
 | Gear lever | `gearLever = true` | bone `gearlever` (or pose `gearlever`) |
 | Engine animations (belts, fan...) | `engineAnims = { { pose = "...", speed = ... } }` | the pose names you list |
-| Destination sign (LED, 3D2D) | `destinationSign = true` | none (it is drawn, not animated) |
+| Destination sign (LED or painted text, 3D2D) | `destinationSign = true` | none (it is drawn, not animated) |
 | Speed limiter | `speedLimiter = true` | none (it limits the engine torque) |
 
 The ignition key and the light switch (`ignitionKey` and `lightSwitch`) were already two independent pose parameters. If your model has both pieces, just animate each one with its own pose parameter.
@@ -426,6 +426,55 @@ destinationSignRequirePower = true, -- only lit with the engine on or the headli
 ```
 
 The defaults are the ones above, so usually you only need `destinationSign = true` and `destinationSignPos`.
+
+**Painted text** (optional): `destinationSignPainted = true` makes the text look painted on the vehicle instead of lit. It is always visible (no power needed), it never scrolls, it has no grid, and the light that reaches the sign (map, sun, dynamic lights) darkens it, so it gets dark at night. The color picked in "Edit Properties" still wins over `destinationSignPaintedColor`.
+
+The text fills the whole sign (`destinationSignWidth` x `destinationSignHeight`): every line stretches or squeezes on its own width and height until the letters touch the edges, so a short text like `319` gets wide and a long one gets narrow. To leave a margin, make the sign a little smaller. Several lines (`|`) share the height and each one fills the width. The line number fills the height and keeps the shape of its letters (up to a third of the sign), or fills `destinationSignLineWidth` if you set it.
+
+```
+destinationSignPainted = false,
+destinationSignPaintedFont = "BlackterioDefaultPaintedSign", -- the biggest bold Arial. A CUSTOM font must be created by you, with letters shaped like Arial's (the fill is calculated for them)
+destinationSignPaintedColor = Color(20, 20, 20),
+```
+
+If you draw it on a printed sign, put the sign a little in front of the surface (0.3 to 0.5 units) and give it the same tilt, or part of the text will sink into it. Fonts are limited to 255 in size, so a text stretched a lot gets soft edges.
+
+**What a sign shows**: `destinationSignContent = "all"` (line number at the left and the destination, the default), `"text"` (only the destination) or `"line"` (only the line number, centered on the whole sign).
+
+**Several signs**: list them in `destinationSigns`. Each one has an `id` and only the keys that change from the base config:
+
+```
+destinationSign = true, -- turns the feature on for all the signs
+destinationSignPos = Vector(296.4, -39.9, 109.8), -- the base config: front sign
+destinationSigns = {
+    { id = "front" }, -- the base config as it is
+    { id = "side", destinationSignPos = Vector(-40, 51, 62), destinationSignAng = Angle(0, 0, 90), destinationSignScale = 0.04 },
+    { id = "rear", destinationSignPos = Vector(-300, 20, 90), destinationSignAng = Angle(0, -90, 90), destinationSignContent = "line" },
+},
+```
+
+With an empty `destinationSigns` (the default) the base config is the only sign. All the signs show the same destination, line number and color of the vehicle.
+
+**Variants**: `destinationSignVariants` changes a sign depending on the skin and the bodygroups, like `LicensePlateAdvancedConfigs` of License Plates. The first variant that matches a sign wins. Every key is optional: `id` (a sign of `destinationSigns`, or none for all the signs; with an empty `destinationSigns` the only sign is `"main"`), `skin`, and `bodygroup = { group id, submodel }`. The ones you give must all match. Any other key replaces that key of the sign:
+
+```
+destinationSignVariants = {
+    -- skin 7: painted text on the printed sign, in another place
+    { skin = 7, destinationSignPainted = true, destinationSignPos = Vector(204.4, -32.2, 112.3), destinationSignAng = Angle(0, 90, 83.44) },
+    -- bodygroup 17 (destination sign) on submodel 1: no sign at all
+    { bodygroup = { 17, 1 }, destinationSign = false },
+},
+```
+
+`destinationSign = true` has to be on the base config: a variant can only hide a sign with `destinationSign = false`.
+
+**Curvature**: `destinationSignCurvature` (from -1 to 1, `0` = flat, the default) bends the sign around its vertical axis so it can follow a curved surface. Positive curves it forward (the center stays where the flat sign was and the ends go back), negative curves it back. `1` is an arc of 45 degrees (the ends turn 22.5). It works on the LED sign and on painted text, and it can go in a variant. The sign is drawn in thin flat strips, so a curve costs a few more draws than a flat sign. Leave the center of the sign a little in front of the surface (0.3 to 0.5 units) so the ends don't sink into it.
+
+```
+destinationSignCurvature = 0.28, -- about 12 degrees of arc in total
+```
+
+**What is not drawn**: signs (and the digital speedometer) are not drawn when they face away from the camera or are behind it, because 3D2D text can't be seen from behind. The last 15 % of `destinationSignDrawDistance` fades out instead of cutting. A curve fades out with the distance too: full up to 400 units from the sign, flat from 800, so a far sign costs the same as a flat one.
 
 **3.** Draw it from the client side of your vehicle (CLIENT only, like the digital speedometer):
 
